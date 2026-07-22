@@ -20,6 +20,19 @@ import type {
   SymbolAnalysis,
   SymbolId,
 } from "./types.js";
+import {
+  analyzeVol,
+  bootstrapVolHistory,
+  resolveVolPending,
+} from "./vol/analyzer.js";
+import { VolFeed } from "./vol/feed.js";
+import { VolJournal } from "./vol/journal.js";
+import type {
+  VolAnalysis,
+  VolLearningSummary,
+  VolSnapshot,
+  VolSymbolId,
+} from "./vol/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -28,24 +41,49 @@ const analyses: Record<SymbolId, SymbolAnalysis | null> = emptySymbolRecord(null
 const bootstrapped: Record<SymbolId, boolean> = emptySymbolRecord(false);
 
 const journal = new SignalJournal();
+const volJournal = new VolJournal();
 
 let connected = false;
 let statusDetail = "Booting";
 let learning: LearningSummary = journal.summarize();
 
+let volConnected = false;
+let volStatusDetail = "Vol feed idle";
+let volAnalysis: VolAnalysis | null = null;
+let volLearning: VolLearningSummary = volJournal.summarize();
+let volBootstrapped = false;
+
 const DISCLAIMER =
-  "Educational signal feedback only — not financial advice. Boom/Crash spikes are designed as stochastic events; no model can reliably predict the next spike.";
+  "Educational signal feedback only — not financial advice. Boom/Crash spikes are designed as stochastic events; volatility-index direction is research, not a guarantee.";
+
+function buildVolSnapshot(): VolSnapshot {
+  return {
+    connected: volConnected,
+    analysis: volAnalysis,
+    learning: volLearning,
+  };
+}
 
 function buildSnapshot(): MarketSnapshot {
   const symbols = {} as MarketSnapshot["symbols"];
   for (const id of SYMBOLS) {
     if (analyses[id]) symbols[id] = analyses[id]!;
   }
-  return { connected, symbols, learning, disclaimer: DISCLAIMER };
+  return {
+    connected,
+    symbols,
+    learning,
+    vol: buildVolSnapshot(),
+    disclaimer: DISCLAIMER,
+  };
 }
 
 function refreshLearning(): void {
   learning = journal.summarize();
+}
+
+function refreshVolLearning(): void {
+  volLearning = volJournal.summarize();
 }
 
 function processSymbol(symbol: SymbolId): void {
@@ -96,6 +134,53 @@ function processSymbol(symbol: SymbolId): void {
   broadcast({ type: "learning", data: learning });
 }
 
+function processVol(symbol: VolSymbolId): void {
+  const ticks = volFeed.getTicks(symbol);
+  if (!ticks.length) return;
+
+  resolveVolPending(volJournal.getPending(), ticks, (id, patch) =>
+    volJournal.update(id, patch),
+  );
+
+  if (!volBootstrapped && ticks.length >= 900) {
+    const rows = bootstrapVolHistory(symbol, ticks);
+    const n = volJournal.addBootstrap(rows);
+    volBootstrapped = true;
+    if (n > 0) {
+      console.log(`Bootstrapped ${n} Vol journal signals for ${symbol}`);
+    }
+  }
+
+  refreshVolLearning();
+  const analysis = analyzeVol(symbol, ticks, volLearning.calibrated);
+  volAnalysis = analysis;
+
+  const pred = analysis.prediction;
+  if (
+    (pred.bias === "up" || pred.bias === "down") &&
+    analysis.lastQuote != null &&
+    analysis.lastEpoch != null
+  ) {
+    volJournal.maybeRecordLive({
+      symbol,
+      bias: pred.bias,
+      confidence: pred.calibratedConfidence ?? pred.confidence,
+      entryPrice: analysis.lastQuote,
+      entryEpoch: analysis.lastEpoch,
+      entryTickIndex: Math.max(0, ticks.length - 1),
+      target: pred.targets.target,
+      stretch: pred.targets.stretch,
+      invalidation: pred.targets.invalidation,
+      horizonTicks: pred.horizonTicks,
+    });
+    refreshVolLearning();
+  }
+
+  broadcast({ type: "snapshot", data: buildSnapshot() });
+  broadcast({ type: "vol", data: buildVolSnapshot() });
+  broadcast({ type: "vol_learning", data: volLearning });
+}
+
 const client = new DerivClient(
   (symbol) => {
     processSymbol(symbol);
@@ -110,12 +195,32 @@ const client = new DerivClient(
   },
 );
 
+const volFeed = new VolFeed(
+  (symbol) => {
+    processVol(symbol);
+  },
+  (isConnected, detail) => {
+    volConnected = isConnected;
+    volStatusDetail = detail || (isConnected ? "Vol live" : "Vol offline");
+    broadcast({
+      type: "vol_status",
+      data: { connected: volConnected, detail: volStatusDetail },
+    });
+  },
+);
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, connected, statusDetail });
+  res.json({
+    ok: true,
+    connected,
+    statusDetail,
+    volConnected,
+    volStatusDetail,
+  });
 });
 
 app.get("/api/snapshot", (_req, res) => {
@@ -132,6 +237,23 @@ app.get("/api/learning/signals", (req, res) => {
   const status = req.query.status as string | undefined;
   let rows = journal.getSignals();
   if (symbol) rows = rows.filter((s) => s.symbol === symbol);
+  if (status) rows = rows.filter((s) => s.status === status);
+  res.json({ signals: rows.slice(-200).reverse() });
+});
+
+app.get("/api/vol", (_req, res) => {
+  refreshVolLearning();
+  res.json(buildVolSnapshot());
+});
+
+app.get("/api/vol/learning", (_req, res) => {
+  refreshVolLearning();
+  res.json(volLearning);
+});
+
+app.get("/api/vol/signals", (req, res) => {
+  const status = req.query.status as string | undefined;
+  let rows = volJournal.getSignals();
   if (status) rows = rows.filter((s) => s.status === status);
   res.json({ signals: rows.slice(-200).reverse() });
 });
@@ -168,6 +290,7 @@ function broadcast(message: unknown): void {
 
 wss.on("connection", (socket) => {
   refreshLearning();
+  refreshVolLearning();
   socket.send(
     JSON.stringify({
       type: "snapshot",
@@ -186,15 +309,35 @@ wss.on("connection", (socket) => {
       data: learning,
     }),
   );
+  socket.send(
+    JSON.stringify({
+      type: "vol",
+      data: buildVolSnapshot(),
+    }),
+  );
+  socket.send(
+    JSON.stringify({
+      type: "vol_status",
+      data: { connected: volConnected, detail: volStatusDetail },
+    }),
+  );
+  socket.send(
+    JSON.stringify({
+      type: "vol_learning",
+      data: volLearning,
+    }),
+  );
 });
 
 server.listen(PORT, () => {
-  console.log(`Boom/Crash predictor listening on http://localhost:${PORT}`);
+  console.log(`SpikeScope listening on http://localhost:${PORT}`);
   client.start();
+  volFeed.start();
 });
 
 process.on("SIGINT", () => {
   client.stop();
+  volFeed.stop();
   server.close();
   process.exit(0);
 });

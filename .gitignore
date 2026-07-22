@@ -11,4 +11,5 @@ client/dist/
 server/dist/
 .vite/
 server/data/signal-journal.json
+server/data/vol-journal.json
 server/data/*.tmp

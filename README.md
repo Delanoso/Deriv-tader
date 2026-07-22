@@ -1,10 +1,10 @@
 # SpikeScope
 
-Live opportunity feedback for Deriv **Boom 1000** and **Crash 1000**.
+Live opportunity feedback for Deriv **Boom/Crash** spike hunts, plus a separate research stack for **Volatility 250** (`1HZ250V`).
 
-SpikeScope streams ticks from the Deriv WebSocket API, detects spikes, scores drift vs spike-watch setups, and shows a quiet-drift paper check on the loaded window.
+SpikeScope streams ticks from the Deriv WebSocket API, detects Boom/Crash spikes, and (for Vol 250) scores direction with target / stretch / invalidation levels.
 
-> **Not financial advice.** Boom/Crash spikes are stochastic. Research on these indices often finds near-memoryless inter-spike gaps — waiting longer does not strongly raise the odds of the next spike. Confidence in this app is intentionally capped.
+> **Not financial advice.** Boom/Crash spikes are stochastic. Volatility-index direction is research — not a guarantee. Confidence in this app is intentionally capped.
 
 ## Stack
 
@@ -32,12 +32,13 @@ Optional: set `PORT` for the server (default `8787`).
 
 | Piece | Behavior |
 | --- | --- |
-| Live ticks | Polls `BOOM300N` / `BOOM900` / `BOOM1000` / `CRASH300N` / `CRASH900` / `CRASH1000` |
+| Live ticks | Polls Boom/Crash 300N/900/1000 plus Volatility 250 (`1HZ250V`) on its own feed |
 | Spike detect | Robust z-score on tick returns (up for Boom, down for Crash) |
 | Signals | Spike hunts only (Boom up / Crash down). Quiet drift candles are stand-aside |
+| Vol 250 | Separate engine: EMA/RSI/momentum bias → ATR + swing target / stretch / invalidation |
 | Reliability | Mean/median inter-spike gap + rough Weibull shape; flags memoryless regimes |
 | Paper check | Spike-hunt backtest: enter after cooldown, score next spike capture |
-| Learning loop | Journals spike hunts; live after-cost hit rates calibrate confidence |
+| Learning loop | Journals spike hunts + Vol direction calls (own `vol-journal.json`) |
 
 ## API
 
@@ -45,8 +46,11 @@ Optional: set `PORT` for the server (default `8787`).
 - `GET /api/snapshot` — full analysis payload (+ learning summary)
 - `GET /api/learning` — journal hit-rates and calibrated confidences
 - `GET /api/learning/signals` — recent journal rows (`?symbol=` / `?status=`)
-- `GET /api/backtest/:symbol` — `BOOM1000` or `CRASH1000`
-- `WS /ws` — live `snapshot`, `learning`, + `status` events
+- `GET /api/backtest/:symbol` — Boom/Crash symbols
+- `GET /api/vol` — Volatility 250 snapshot (analysis + learning)
+- `GET /api/vol/learning` — Vol journal scoreboard
+- `GET /api/vol/signals` — recent Vol journal rows
+- `WS /ws` — live `snapshot`, `learning`, `vol`, `vol_learning`, `status`, `vol_status`
 
 ### Learning loop
 
@@ -88,7 +92,8 @@ npm run start --prefix server  # serve API + built client
 ## Project layout
 
 ```
-server/src/     Deriv client, analyzer, spike detector, HTTP/WS API
-client/src/     SpikeScope dashboard
-scripts/        one-off Deriv probes
+server/src/         Boom/Crash Deriv client, analyzer, spike detector, HTTP/WS API
+server/src/vol/     Volatility 250 feed, direction/range engine, vol journal
+client/src/         SpikeScope dashboard (spike mode + Vol 250 mode)
+scripts/            one-off Deriv probes
 ```

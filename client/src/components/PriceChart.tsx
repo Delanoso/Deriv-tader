@@ -7,19 +7,28 @@ import {
   type CandlestickData,
   type Time,
   CandlestickSeries,
+  type IPriceLine,
 } from "lightweight-charts";
 import type { Candle, SpikeEvent } from "../types";
+
+export interface ChartLevel {
+  price: number;
+  color: string;
+  title: string;
+}
 
 interface Props {
   candles: Candle[];
   spikes: SpikeEvent[];
   accent: string;
+  levels?: ChartLevel[];
 }
 
-export function PriceChart({ candles, spikes, accent }: Props) {
+export function PriceChart({ candles, spikes, accent, levels = [] }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const priceLinesRef = useRef<IPriceLine[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -66,6 +75,7 @@ export function PriceChart({ candles, spikes, accent }: Props) {
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
+      priceLinesRef.current = [];
     };
   }, [accent]);
 
@@ -114,8 +124,22 @@ export function PriceChart({ candles, spikes, accent }: Props) {
       [...unique.values()].sort((a, b) => (a.time as number) - (b.time as number)),
     );
 
+    for (const line of priceLinesRef.current) {
+      candleSeriesRef.current.removePriceLine(line);
+    }
+    priceLinesRef.current = levels.map((level) =>
+      candleSeriesRef.current!.createPriceLine({
+        price: level.price,
+        color: level.color,
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: level.title,
+      }),
+    );
+
     chartRef.current?.timeScale().fitContent();
-  }, [candles, spikes]);
+  }, [candles, spikes, levels]);
 
   return <div className="chart-shell" ref={containerRef} />;
 }

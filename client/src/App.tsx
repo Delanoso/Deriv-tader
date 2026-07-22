@@ -3,8 +3,12 @@ import { useMarketFeed } from "./hooks/useMarketFeed";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { LearningPanel } from "./components/LearningPanel";
 import { ForecastPanel } from "./components/ForecastPanel";
+import { VolPanel } from "./components/VolPanel";
+import { VolLearningPanel } from "./components/VolLearningPanel";
 import type { SymbolId } from "./types";
 import "./App.css";
+
+type Mode = "spikes" | "vol250";
 
 const TABS: { id: SymbolId; label: string }[] = [
   { id: "BOOM300N", label: "Boom 300" },
@@ -16,7 +20,9 @@ const TABS: { id: SymbolId; label: string }[] = [
 ];
 
 export default function App() {
-  const { snapshot, learning, status, live } = useMarketFeed();
+  const { snapshot, learning, vol, volLearning, status, volStatus, live } =
+    useMarketFeed();
+  const [mode, setMode] = useState<Mode>("spikes");
   const [tab, setTab] = useState<SymbolId>("BOOM1000");
 
   const active = snapshot.symbols[tab];
@@ -24,6 +30,10 @@ export default function App() {
     () => TABS.filter((t) => Boolean(snapshot.symbols[t.id])).length,
     [snapshot.symbols],
   );
+  const volAnalysis = vol.analysis;
+  const volConf =
+    volAnalysis?.prediction.calibratedConfidence ??
+    volAnalysis?.prediction.confidence;
 
   return (
     <div className="app">
@@ -34,62 +44,150 @@ export default function App() {
           <p className="brand">SpikeScope</p>
           <div className={`pulse-dot ${live ? "on" : ""}`} />
         </div>
-        <h1>Spike hunts for Boom & Crash 300 / 900 / 1000</h1>
+        <h1>
+          {mode === "spikes"
+            ? "Spike hunts for Boom & Crash 300 / 900 / 1000"
+            : "Volatility 250 — direction and how far"}
+        </h1>
         <p className="lede">
-          Built to hunt Boom up-spikes and Crash down-spikes — not the quiet
-          candles between them — then journal whether the hunt paid.
+          {mode === "spikes"
+            ? "Built to hunt Boom up-spikes and Crash down-spikes — not the quiet candles between them — then journal whether the hunt paid."
+            : "Separate research stack for 1HZ250V: predict up vs down, project target / stretch / invalidation from ATR + swings, and journal path quality."}
         </p>
         <div className="cta-row">
           <span className={`status-pill ${live ? "live" : "off"}`}>{status}</span>
-          <span className="status-pill soft">
-            {loadedCount}/{TABS.length} markets loaded
-          </span>
-          {active?.kill?.killed && (
-            <span className="status-pill off">Kill rule active</span>
-          )}
-          {!active?.kill?.killed && active?.kill?.warning && (
-            <span className="status-pill off">Kill warning</span>
-          )}
-          {active?.forecast?.bestHorizon?.probability != null && (
-            <span className="status-pill soft">
-              Best P(spike≤{active.forecast.bestHorizon.horizonTicks})=
-              {Math.round(active.forecast.bestHorizon.probability * 100)}%
-            </span>
+          {mode === "spikes" ? (
+            <>
+              <span className="status-pill soft">
+                {loadedCount}/{TABS.length} markets loaded
+              </span>
+              {active?.kill?.killed && (
+                <span className="status-pill off">Kill rule active</span>
+              )}
+              {!active?.kill?.killed && active?.kill?.warning && (
+                <span className="status-pill off">Kill warning</span>
+              )}
+              {active?.forecast?.bestHorizon?.probability != null && (
+                <span className="status-pill soft">
+                  Best P(spike≤{active.forecast.bestHorizon.horizonTicks})=
+                  {Math.round(active.forecast.bestHorizon.probability * 100)}%
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span className={`status-pill ${vol.connected ? "live" : "off"}`}>
+                {volStatus}
+              </span>
+              {volAnalysis?.lastQuote != null && (
+                <span className="status-pill soft">
+                  {volAnalysis.ticksCollected.toLocaleString()} ticks ·{" "}
+                  {volAnalysis.prediction.bias}
+                  {volConf != null ? ` · ${Math.round(volConf * 100)}%` : ""}
+                </span>
+              )}
+            </>
           )}
         </div>
       </header>
 
-      <nav className="tabs" aria-label="Markets">
-        {TABS.map((t) => {
-          const opp = snapshot.symbols[t.id]?.opportunity;
-          const conf = opp?.calibratedConfidence ?? opp?.confidence;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              className={tab === t.id ? "active" : ""}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-              {conf != null && <em>{Math.round(conf * 100)}%</em>}
-            </button>
-          );
-        })}
+      <nav className="mode-tabs" aria-label="Research mode">
+        <button
+          type="button"
+          className={mode === "spikes" ? "active" : ""}
+          onClick={() => setMode("spikes")}
+        >
+          Boom / Crash spikes
+        </button>
+        <button
+          type="button"
+          className={mode === "vol250" ? "active" : ""}
+          onClick={() => setMode("vol250")}
+        >
+          Volatility 250
+          {volConf != null && <em>{Math.round(volConf * 100)}%</em>}
+        </button>
       </nav>
 
+      {mode === "spikes" && (
+        <nav className="tabs" aria-label="Markets">
+          {TABS.map((t) => {
+            const opp = snapshot.symbols[t.id]?.opportunity;
+            const conf = opp?.calibratedConfidence ?? opp?.confidence;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                className={tab === t.id ? "active" : ""}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+                {conf != null && <em>{Math.round(conf * 100)}%</em>}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
       <main className="main-grid">
-        {active ? (
-          <SymbolPanel analysis={active} active />
+        {mode === "spikes" ? (
+          <>
+            {active ? (
+              <SymbolPanel analysis={active} active />
+            ) : (
+              <div className="loading-panel">
+                <div className="spinner" />
+                <p>Pulling Deriv history for {tab}…</p>
+              </div>
+            )}
+            <aside className="side-stack">
+              <ForecastPanel forecast={active?.forecast} kill={active?.kill} />
+              <LearningPanel learning={learning} symbol={tab} />
+            </aside>
+          </>
         ) : (
-          <div className="loading-panel">
-            <div className="spinner" />
-            <p>Pulling Deriv history for {tab}…</p>
-          </div>
+          <>
+            {volAnalysis ? (
+              <VolPanel analysis={volAnalysis} />
+            ) : (
+              <div className="loading-panel">
+                <div className="spinner" />
+                <p>Pulling Volatility 250 history…</p>
+              </div>
+            )}
+            <aside className="side-stack">
+              <section className="forecast-panel">
+                <h3>Until where?</h3>
+                {volAnalysis && volAnalysis.prediction.bias !== "neutral" ? (
+                  <>
+                    <p className="timing-note ok">
+                      Primary target{" "}
+                      <strong>{volAnalysis.prediction.targets.target.toFixed(5)}</strong>{" "}
+                      (~{volAnalysis.prediction.targets.expectedMovePct.toFixed(3)}%),
+                      stretch{" "}
+                      <strong>{volAnalysis.prediction.targets.stretch.toFixed(5)}</strong>
+                      . Stand down if{" "}
+                      <strong>
+                        {volAnalysis.prediction.targets.invalidation.toFixed(5)}
+                      </strong>{" "}
+                      prints first.
+                    </p>
+                    <p className="timing-note">
+                      Horizon {volAnalysis.prediction.horizonTicks} ticks · method{" "}
+                      {volAnalysis.prediction.targets.method}
+                    </p>
+                  </>
+                ) : (
+                  <p className="timing-note weak">
+                    Waiting for a clear EMA / momentum / RSI stack before projecting
+                    range.
+                  </p>
+                )}
+              </section>
+              <VolLearningPanel learning={volLearning ?? vol.learning} />
+            </aside>
+          </>
         )}
-        <aside className="side-stack">
-          <ForecastPanel forecast={active?.forecast} kill={active?.kill} />
-          <LearningPanel learning={learning} symbol={tab} />
-        </aside>
       </main>
 
       <footer className="foot">

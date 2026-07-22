@@ -202,6 +202,7 @@ export interface MarketSnapshot {
   connected: boolean;
   symbols: Partial<Record<SymbolId, SymbolAnalysis>>;
   learning?: LearningSummary;
+  vol?: VolSnapshot;
   disclaimer: string;
 }
 
@@ -212,4 +213,107 @@ export interface BacktestResult {
   winRate: number | null;
   avgReturnPct: number | null;
   ticksUsed: number;
+}
+
+/** Volatility 250 research stack (separate from Boom/Crash). */
+export type VolSymbolId = "1HZ250V";
+export type VolBias = "up" | "down" | "neutral";
+
+export interface VolTargets {
+  target: number;
+  stretch: number;
+  invalidation: number;
+  expectedMovePct: number;
+  method: string;
+}
+
+export interface VolPrediction {
+  bias: VolBias;
+  action: string;
+  confidence: number;
+  calibratedConfidence?: number;
+  horizonTicks: number;
+  targets: VolTargets;
+  rationale: string[];
+  riskNote: string;
+}
+
+export interface VolIndicators {
+  rsi14: number | null;
+  ema9: number | null;
+  ema21: number | null;
+  atr14: number | null;
+  momentum20: number | null;
+  swingHigh: number | null;
+  swingLow: number | null;
+}
+
+export interface VolAnalysis {
+  symbol: VolSymbolId;
+  displayName: string;
+  lastQuote: number | null;
+  lastEpoch: number | null;
+  ticksCollected: number;
+  indicators: VolIndicators;
+  prediction: VolPrediction;
+  candles: Candle[];
+  recentTicks: Tick[];
+  updatedAt: number;
+}
+
+export type VolSignalStatus = "pending" | "win" | "loss" | "expired";
+
+export interface VolJournalSignal {
+  id: string;
+  symbol: VolSymbolId;
+  bias: Exclude<VolBias, "neutral">;
+  confidence: number;
+  entryPrice: number;
+  entryEpoch: number;
+  target: number;
+  stretch: number;
+  invalidation: number;
+  horizonTicks: number;
+  createdAt: number;
+  status: VolSignalStatus;
+  returnPct?: number;
+  mfePct?: number;
+  maePct?: number;
+  hitTarget?: boolean;
+  hitInvalidation?: boolean;
+  note?: string;
+  source: "live" | "bootstrap";
+}
+
+export interface VolKindStats {
+  total: number;
+  wins: number;
+  losses: number;
+  pending: number;
+  winRate: number | null;
+  avgReturnPct: number | null;
+  avgMfePct: number | null;
+  avgMaePct: number | null;
+  targetHitRate: number | null;
+}
+
+export interface VolLearningSummary {
+  totalSignals: number;
+  pending: number;
+  resolved: number;
+  overallWinRate: number | null;
+  targetHitRate: number | null;
+  byBias: {
+    up: VolKindStats;
+    down: VolKindStats;
+  };
+  recent: VolJournalSignal[];
+  calibrated: Partial<Record<"up" | "down", number>>;
+  updatedAt: number;
+}
+
+export interface VolSnapshot {
+  connected: boolean;
+  analysis: VolAnalysis | null;
+  learning: VolLearningSummary;
 }

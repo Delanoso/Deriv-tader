@@ -216,5 +216,7 @@ export interface MarketSnapshot {
   connected: boolean;
   symbols: Partial<Record<SymbolId, SymbolAnalysis>>;
   learning: LearningSummary;
+  /** Volatility-index research stack (separate from Boom/Crash spike hunts). */
+  vol?: import("./vol/types.js").VolSnapshot;
   disclaimer: string;
 }

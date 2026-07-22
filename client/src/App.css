@@ -171,6 +171,45 @@ button {
   font-weight: 500;
 }
 
+.mode-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.25rem 0 0.75rem;
+  animation: rise 0.7s ease 0.05s both;
+}
+
+.mode-tabs button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--ink-soft);
+  padding: 0.65rem 1.05rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 650;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.mode-tabs button em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+
+.mode-tabs button:hover {
+  transform: translateY(-1px);
+}
+
+.mode-tabs button.active {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #f5fbfb;
+}
+
 .tabs {
   position: relative;
   display: flex;
@@ -506,19 +545,60 @@ button {
   border: 1px solid var(--line);
 }
 
-.bias-bullish {
+.bias-bullish,
+.bias-up {
   color: #0f766e;
   background: rgba(13, 148, 136, 0.1);
 }
 
-.bias-bearish {
-  color: #c2410c;
-  background: rgba(255, 107, 74, 0.12);
+.bias-bearish,
+.bias-down {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.12);
 }
 
 .bias-neutral {
   color: var(--ink-soft);
   background: rgba(15, 42, 58, 0.05);
+}
+
+.vol-levels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0.85rem 0 0.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.vol-level {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.vol-level span {
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.vol-level strong {
+  font-family: var(--font-mono);
+  font-size: 0.98rem;
+}
+
+.vol-level em {
+  font-style: normal;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+@media (max-width: 720px) {
+  .vol-levels {
+    grid-template-columns: 1fr;
+  }
 }
 
 .chart-shell {

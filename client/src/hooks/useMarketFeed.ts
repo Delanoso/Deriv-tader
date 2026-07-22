@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { LearningSummary, MarketSnapshot } from "../types";
+import type {
+  LearningSummary,
+  MarketSnapshot,
+  VolLearningSummary,
+  VolSnapshot,
+} from "../types";
 
 const empty: MarketSnapshot = {
   connected: false,
@@ -7,10 +12,52 @@ const empty: MarketSnapshot = {
   disclaimer: "",
 };
 
+const emptyVol: VolSnapshot = {
+  connected: false,
+  analysis: null,
+  learning: {
+    totalSignals: 0,
+    pending: 0,
+    resolved: 0,
+    overallWinRate: null,
+    targetHitRate: null,
+    byBias: {
+      up: {
+        total: 0,
+        wins: 0,
+        losses: 0,
+        pending: 0,
+        winRate: null,
+        avgReturnPct: null,
+        avgMfePct: null,
+        avgMaePct: null,
+        targetHitRate: null,
+      },
+      down: {
+        total: 0,
+        wins: 0,
+        losses: 0,
+        pending: 0,
+        winRate: null,
+        avgReturnPct: null,
+        avgMfePct: null,
+        avgMaePct: null,
+        targetHitRate: null,
+      },
+    },
+    recent: [],
+    calibrated: {},
+    updatedAt: 0,
+  },
+};
+
 export function useMarketFeed() {
   const [snapshot, setSnapshot] = useState<MarketSnapshot>(empty);
   const [learning, setLearning] = useState<LearningSummary | null>(null);
+  const [vol, setVol] = useState<VolSnapshot>(emptyVol);
+  const [volLearning, setVolLearning] = useState<VolLearningSummary | null>(null);
   const [status, setStatus] = useState("Connecting…");
+  const [volStatus, setVolStatus] = useState("Vol connecting…");
   const [live, setLive] = useState(false);
   const retryRef = useRef(0);
 
@@ -35,13 +82,29 @@ export function useMarketFeed() {
           if (msg.type === "snapshot") {
             setSnapshot(msg.data);
             if (msg.data.learning) setLearning(msg.data.learning);
+            if (msg.data.vol) {
+              setVol(msg.data.vol);
+              if (msg.data.vol.learning) setVolLearning(msg.data.vol.learning);
+            }
           }
           if (msg.type === "learning") {
             setLearning(msg.data);
           }
+          if (msg.type === "vol") {
+            setVol(msg.data);
+            if (msg.data.learning) setVolLearning(msg.data.learning);
+          }
+          if (msg.type === "vol_learning") {
+            setVolLearning(msg.data);
+          }
           if (msg.type === "status") {
             setLive(Boolean(msg.data.connected));
             setStatus(msg.data.detail || (msg.data.connected ? "Live" : "Offline"));
+          }
+          if (msg.type === "vol_status") {
+            setVolStatus(
+              msg.data.detail || (msg.data.connected ? "Vol live" : "Vol offline"),
+            );
           }
         } catch {
           // ignore
@@ -63,12 +126,24 @@ export function useMarketFeed() {
       .then((data) => {
         setSnapshot(data);
         if (data.learning) setLearning(data.learning);
+        if (data.vol) {
+          setVol(data.vol);
+          if (data.vol.learning) setVolLearning(data.vol.learning);
+        }
       })
       .catch(() => undefined);
 
     fetch("/api/learning")
       .then((r) => r.json())
       .then((data) => setLearning(data))
+      .catch(() => undefined);
+
+    fetch("/api/vol")
+      .then((r) => r.json())
+      .then((data) => {
+        setVol(data);
+        if (data.learning) setVolLearning(data.learning);
+      })
       .catch(() => undefined);
 
     connect();
@@ -80,5 +155,5 @@ export function useMarketFeed() {
     };
   }, []);
 
-  return { snapshot, learning, status, live };
+  return { snapshot, learning, vol, volLearning, status, volStatus, live };
 }
