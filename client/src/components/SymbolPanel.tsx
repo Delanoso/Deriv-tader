@@ -30,7 +30,7 @@ export function SymbolPanel({ analysis, active }: Props) {
     const out: ChartLevel[] = [];
     out.push({
       price: openTrade.entryPrice,
-      color: "#b45309",
+      color: "#7c3aed",
       title: "Entry",
     });
     if (openTrade.target != null) {
@@ -56,7 +56,7 @@ export function SymbolPanel({ analysis, active }: Props) {
       {
         epoch: openTrade.entryEpoch,
         label: "open",
-        color: "#b45309",
+        color: "#7c3aed",
         position: up ? "belowBar" : "aboveBar",
         shape: "circle",
       },

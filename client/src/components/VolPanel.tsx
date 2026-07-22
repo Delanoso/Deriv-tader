@@ -17,7 +17,7 @@ export function VolPanel({ analysis }: Props) {
   const levels = useMemo((): ChartLevel[] => {
     if (!openTrade) return [];
     return [
-      { price: openTrade.entryPrice, color: "#b45309", title: "Entry" },
+      { price: openTrade.entryPrice, color: "#7c3aed", title: "Entry" },
       { price: openTrade.target, color: "#0d9488", title: "Target" },
       { price: openTrade.stretch, color: "#2563eb", title: "Stretch" },
       {
@@ -35,7 +35,7 @@ export function VolPanel({ analysis }: Props) {
       {
         epoch: openTrade.entryEpoch,
         label: "open",
-        color: "#b45309",
+        color: "#7c3aed",
         position: up ? "belowBar" : "aboveBar",
         shape: "circle",
       },
