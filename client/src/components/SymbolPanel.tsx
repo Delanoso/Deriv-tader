@@ -105,6 +105,7 @@ export function SymbolPanel({ analysis, active }: Props) {
         accent={accent}
         levels={levels}
         forecastMarkers={forecastMarkers}
+        spikeDirection={isBoom ? "up" : "down"}
       />
 
       {plan && (

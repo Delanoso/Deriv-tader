@@ -4,6 +4,7 @@ import {
   createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type CandlestickData,
   type Time,
   CandlestickSeries,
@@ -34,7 +35,17 @@ interface Props {
   forecastMarkers?: ForecastMarker[];
   /** Seconds between candle buckets (used to pad future ETA bars). */
   candleStepSec?: number;
+  /** Boom = up spikes, Crash = down spikes. */
+  spikeDirection?: "up" | "down";
 }
+
+type Marker = {
+  time: Time;
+  position: "aboveBar" | "belowBar";
+  color: string;
+  shape: "arrowUp" | "arrowDown" | "circle" | "square";
+  text: string;
+};
 
 export function PriceChart({
   candles,
@@ -43,10 +54,12 @@ export function PriceChart({
   levels = [],
   forecastMarkers = [],
   candleStepSec = 60,
+  spikeDirection = "up",
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const markersApiRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const followRef = useRef(true);
   const [follow, setFollow] = useState(true);
@@ -104,6 +117,8 @@ export function PriceChart({
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
+    // One markers plugin for the life of the series — updates use setMarkers().
+    markersApiRef.current = createSeriesMarkers(candleSeries, []);
 
     const observer = new ResizeObserver(() => {
       if (!containerRef.current) return;
@@ -113,6 +128,8 @@ export function PriceChart({
 
     return () => {
       observer.disconnect();
+      markersApiRef.current?.detach();
+      markersApiRef.current = null;
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -121,7 +138,9 @@ export function PriceChart({
   }, [accent]);
 
   useEffect(() => {
-    if (!candleSeriesRef.current || !chartRef.current) return;
+    if (!candleSeriesRef.current || !chartRef.current || !markersApiRef.current) {
+      return;
+    }
 
     const preserved = followRef.current
       ? null
@@ -135,6 +154,8 @@ export function PriceChart({
       last?.epoch ?? 0,
     );
 
+    const byEpoch = new Map(candles.map((c) => [c.epoch, c]));
+
     const data: CandlestickData[] = candles.map((c) => ({
       time: c.epoch as Time,
       open: c.open,
@@ -145,9 +166,7 @@ export function PriceChart({
 
     // Pad flat future bars so ETA markers have a time coordinate to sit on.
     if (last && maxFutureEpoch > last.epoch) {
-      let t = last.epoch + step;
-      // Align to bucket
-      t = Math.floor(t / step) * step;
+      let t = Math.floor((last.epoch + step) / step) * step;
       if (t <= last.epoch) t += step;
       while (t <= maxFutureEpoch + step) {
         data.push({
@@ -163,50 +182,43 @@ export function PriceChart({
 
     candleSeriesRef.current.setData(data);
 
-    type Marker = {
-      time: Time;
-      position: "aboveBar" | "belowBar";
-      color: string;
-      shape: "arrowUp" | "arrowDown" | "circle" | "square";
-      text: string;
-    };
+    const histMarkers: Marker[] = [];
+    for (const s of spikes) {
+      const bucket = Math.floor(s.epoch / step) * step;
+      // Only mark candles that actually contain this spike tick — never nearest-neighbor.
+      if (!byEpoch.has(bucket)) continue;
+      histMarkers.push({
+        time: bucket as Time,
+        position: spikeDirection === "up" ? "belowBar" : "aboveBar",
+        color: "#ff6b4a",
+        shape: spikeDirection === "up" ? "arrowUp" : "arrowDown",
+        text: "spike",
+      });
+    }
 
-    const histMarkers: Marker[] = spikes
-      .map((s) => {
-        const candle = candles.reduce(
-          (best, c) =>
-            Math.abs(c.epoch - s.epoch) < Math.abs(best.epoch - s.epoch) ? c : best,
-          candles[0],
-        );
-        if (!candle) return null;
+    const forecastMapped: Marker[] = forecastMarkers
+      .map((f) => {
+        const bucket = Math.floor(f.epoch / step) * step;
+        // Forecast may sit on padded future bars; allow those times too.
+        const onHistory = byEpoch.has(bucket);
+        const onFuture = Boolean(last && bucket > last.epoch && bucket <= maxFutureEpoch + step);
+        if (!onHistory && !onFuture) return null;
         return {
-          time: candle.epoch as Time,
-          position: "aboveBar" as const,
-          color: "#ff6b4a",
-          shape: "arrowDown" as const,
-          text: "spike",
-        };
+          time: bucket as Time,
+          position: f.position ?? "belowBar",
+          color: f.color,
+          shape: f.shape ?? "circle",
+          text: f.label,
+        } satisfies Marker;
       })
       .filter(Boolean) as Marker[];
 
-    const forecastMapped: Marker[] = forecastMarkers.map((f) => {
-      const bucket = Math.floor(f.epoch / step) * step;
-      return {
-        time: bucket as Time,
-        position: f.position ?? "belowBar",
-        color: f.color,
-        shape: f.shape ?? "circle",
-        text: f.label,
-      };
-    });
-
     const unique = new Map<string, Marker>();
     for (const m of [...histMarkers, ...forecastMapped]) {
-      unique.set(`${m.time}:${m.text}`, m);
+      unique.set(`${m.time as number}:${m.text}`, m);
     }
 
-    createSeriesMarkers(
-      candleSeriesRef.current,
+    markersApiRef.current.setMarkers(
       [...unique.values()].sort((a, b) => (a.time as number) - (b.time as number)),
     );
 
@@ -229,7 +241,7 @@ export function PriceChart({
     } else if (preserved) {
       chartRef.current.timeScale().setVisibleLogicalRange(preserved);
     }
-  }, [candles, spikes, levels, forecastMarkers, candleStepSec]);
+  }, [candles, spikes, levels, forecastMarkers, candleStepSec, spikeDirection]);
 
   useEffect(() => {
     if (!chartRef.current) return;
