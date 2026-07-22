@@ -1,6 +1,6 @@
-import { useMemo } from "react";
-import type { VolAnalysis } from "../types";
-import { PriceChart, type ChartLevel, type ForecastMarker } from "./PriceChart";
+import { useEffect, useMemo, useState } from "react";
+import type { VolAnalysis, VolJournalSignal } from "../types";
+import { PriceChart, type ChartLevel } from "./PriceChart";
 
 interface Props {
   analysis: VolAnalysis;
@@ -12,54 +12,38 @@ export function VolPanel({ analysis }: Props) {
   const confPct = Math.round(conf * 100);
   const rawPct = Math.round(pred.confidence * 100);
   const accent = pred.bias === "down" ? "#2563eb" : "#0d9488";
+  const [openTrade, setOpenTrade] = useState<VolJournalSignal | null>(null);
 
   const levels = useMemo((): ChartLevel[] => {
-    if (pred.bias === "neutral") return [];
+    if (!openTrade) return [];
     return [
-      { price: pred.targets.target, color: "#0d9488", title: "Target" },
-      { price: pred.targets.stretch, color: "#2563eb", title: "Stretch" },
+      { price: openTrade.target, color: "#0d9488", title: "Target" },
+      { price: openTrade.stretch, color: "#2563eb", title: "Stretch" },
       {
-        price: pred.targets.invalidation,
+        price: openTrade.invalidation,
         color: "#ff6b4a",
-        title: "Invalidation",
+        title: "Stop",
       },
     ];
-  }, [
-    pred.bias,
-    pred.targets.target,
-    pred.targets.stretch,
-    pred.targets.invalidation,
-  ]);
+  }, [openTrade]);
 
-  const forecastMarkers = useMemo((): ForecastMarker[] => {
-    if (pred.bias === "neutral") return [];
-    const markers: ForecastMarker[] = [];
-    const nowEpoch = analysis.lastEpoch ?? analysis.candles.at(-1)?.epoch;
-    if (nowEpoch != null) {
-      markers.push({
-        epoch: nowEpoch,
-        label: "invalidate",
-        color: "#ff6b4a",
-        position: pred.bias === "up" ? "aboveBar" : "belowBar",
-        shape: "circle",
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/vol/signals?status=pending")
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const rows = (data.signals ?? []) as VolJournalSignal[];
+        const live = rows.find((s) => s.source === "live") ?? rows[0] ?? null;
+        setOpenTrade(live);
+      })
+      .catch(() => {
+        if (!cancelled) setOpenTrade(null);
       });
-    }
-    if (pred.targets.expectedEpoch != null) {
-      markers.push({
-        epoch: pred.targets.expectedEpoch,
-        label: pred.bias === "up" ? "target↑" : "target↓",
-        color: "#0d9488",
-        position: pred.bias === "up" ? "belowBar" : "aboveBar",
-        shape: pred.bias === "up" ? "arrowUp" : "arrowDown",
-      });
-    }
-    return markers;
-  }, [
-    pred.bias,
-    pred.targets.expectedEpoch,
-    analysis.lastEpoch,
-    analysis.candles,
-  ]);
+    return () => {
+      cancelled = true;
+    };
+  }, [analysis.updatedAt]);
 
   return (
     <section className="symbol-panel is-active" data-symbol={analysis.symbol}>
@@ -83,8 +67,15 @@ export function VolPanel({ analysis }: Props) {
         spikes={[]}
         accent={accent}
         levels={levels}
-        forecastMarkers={forecastMarkers}
       />
+
+      {openTrade && (
+        <div className="open-trade-banner">
+          Open paper trade · {openTrade.bias.toUpperCase()} · entry{" "}
+          {openTrade.entryPrice.toFixed(5)} · target {openTrade.target.toFixed(5)} ·
+          stop {openTrade.invalidation.toFixed(5)}
+        </div>
+      )}
 
       <div className="signal-block">
         <div className="signal-top">
@@ -102,22 +93,6 @@ export function VolPanel({ analysis }: Props) {
         </ul>
         <p className="risk">{pred.riskNote}</p>
       </div>
-
-      {pred.bias !== "neutral" && (
-        <div className="vol-levels">
-          <Level
-            label="Target"
-            value={pred.targets.target}
-            hint={`${pred.targets.expectedMovePct.toFixed(3)}% · ${pred.targets.method}`}
-          />
-          <Level label="Stretch" value={pred.targets.stretch} hint="Runner" />
-          <Level
-            label="Invalidation"
-            value={pred.targets.invalidation}
-            hint="Exit if printed first"
-          />
-        </div>
-      )}
 
       <div className="metrics">
         <Metric label="Horizon" value={`${pred.horizonTicks} ticks`} />
@@ -145,24 +120,6 @@ export function VolPanel({ analysis }: Props) {
         />
       </div>
     </section>
-  );
-}
-
-function Level({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: number;
-  hint: string;
-}) {
-  return (
-    <div className="vol-level">
-      <span>{label}</span>
-      <strong>{value.toFixed(5)}</strong>
-      <em>{hint}</em>
-    </div>
   );
 }
 

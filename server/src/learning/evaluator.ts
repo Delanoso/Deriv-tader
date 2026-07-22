@@ -18,6 +18,7 @@ const DEFAULT_HORIZON: Record<TradeKind, number> = {
 
 /**
  * Resolve pending journal signals against the latest tick buffer.
+ * Wins: spike print or target touch. Losses: invalidation (stopout) or horizon expiry.
  */
 export function resolvePendingSignals(
   journal: SignalJournal,
@@ -38,32 +39,10 @@ export function resolvePendingSignals(
     if (elapsed < 5) continue; // need a little path
 
     if (signal.kind === "spike_watch") {
-      const hit = spikes.some(
-        (sp) => sp.index > entryIdx && sp.index <= horizonEnd,
-      );
-      if (hit) {
-        const spike = spikes.find((sp) => sp.index > entryIdx && sp.index <= horizonEnd)!;
-        journal.updateSignal(signal.id, {
-          status: "win",
-          resolvedAt: Date.now(),
-          exitPrice: spike.quote,
-          exitEpoch: spike.epoch,
-          returnPct: pctReturn(signal.bias, signal.entryPrice, spike.quote),
-          note: "Spike printed inside watch horizon",
-        });
-        resolved += 1;
-      } else if (elapsed >= signal.horizonTicks) {
-        const exit = ticks[horizonEnd];
-        journal.updateSignal(signal.id, {
-          status: "loss",
-          resolvedAt: Date.now(),
-          exitPrice: exit.quote,
-          exitEpoch: exit.epoch,
-          returnPct: pctReturn(signal.bias, signal.entryPrice, exit.quote),
-          note: "No spike before watch horizon expired",
-        });
-        resolved += 1;
-      }
+      const path = resolveSpikeHuntPath(signal, ticks, entryIdx, horizonEnd, spikes);
+      if (!path) continue;
+      journal.updateSignal(signal.id, path);
+      resolved += 1;
       continue;
     }
 
@@ -89,6 +68,7 @@ export function resolvePendingSignals(
       exitPrice: exit.quote,
       exitEpoch: exit.epoch,
       returnPct: ret,
+      outcome: wipedBySpike ? "stopout" : ret > 0 ? "target" : "expired",
       note: wipedBySpike
         ? "Cut by spike against the drift bias"
         : ret > 0
@@ -99,6 +79,102 @@ export function resolvePendingSignals(
   }
 
   return resolved;
+}
+
+function resolveSpikeHuntPath(
+  signal: JournalSignal,
+  ticks: Tick[],
+  entryIdx: number,
+  horizonEnd: number,
+  spikes: { index: number; epoch: number; quote: number }[],
+): Partial<JournalSignal> | null {
+  const bullish = signal.bias === "bullish";
+  let hitTarget = false;
+  let hitInvalidation = false;
+  let hitSpike = false;
+  let exitIdx = -1;
+
+  for (let i = entryIdx + 1; i <= horizonEnd; i++) {
+    const px = ticks[i].quote;
+
+    if (signal.invalidation != null) {
+      const stopped = bullish
+        ? px <= signal.invalidation
+        : px >= signal.invalidation;
+      if (stopped) {
+        hitInvalidation = true;
+        exitIdx = i;
+        break;
+      }
+    }
+
+    if (signal.target != null) {
+      const reached = bullish ? px >= signal.target : px <= signal.target;
+      if (reached) {
+        hitTarget = true;
+        exitIdx = i;
+        break;
+      }
+    }
+
+    const spike = spikes.find((sp) => sp.index === i);
+    if (spike) {
+      hitSpike = true;
+      exitIdx = i;
+      break;
+    }
+  }
+
+  const elapsed = ticks.length - 1 - entryIdx;
+  if (exitIdx < 0) {
+    if (elapsed < signal.horizonTicks) return null;
+    exitIdx = horizonEnd;
+  }
+
+  const exit = ticks[exitIdx];
+  const ret = pctReturn(signal.bias, signal.entryPrice, exit.quote);
+
+  if (hitInvalidation) {
+    return {
+      status: "loss",
+      resolvedAt: Date.now(),
+      exitPrice: exit.quote,
+      exitEpoch: exit.epoch,
+      returnPct: ret,
+      hitTarget: false,
+      hitInvalidation: true,
+      outcome: "stopout",
+      note: "Stopout — invalidation printed before spike/target",
+    };
+  }
+
+  if (hitTarget || hitSpike) {
+    return {
+      status: "win",
+      resolvedAt: Date.now(),
+      exitPrice: exit.quote,
+      exitEpoch: exit.epoch,
+      returnPct: ret,
+      hitTarget: hitTarget || undefined,
+      hitInvalidation: false,
+      outcome: hitSpike ? "spike" : "target",
+      note: hitSpike
+        ? "Spike printed inside watch horizon"
+        : "Hit spike target before invalidation",
+    };
+  }
+
+  return {
+    status: "loss",
+    resolvedAt: Date.now(),
+    exitPrice: exit.quote,
+    exitEpoch: exit.epoch,
+    returnPct: ret,
+    hitTarget: false,
+    hitInvalidation: false,
+    outcome: "expired",
+    note: "No spike/target before watch horizon expired",
+  };
 }
 
 /**
@@ -132,40 +208,9 @@ export function bootstrapFromHistory(
 
     const horizon = DEFAULT_HORIZON[opp.kind];
     const entryIdx = window.length - 1;
-    const exitIdx = Math.min(ticks.length - 1, entryIdx + horizon);
-
-    // Resolve immediately against future ticks in the full buffer
-    const future = ticks;
-    const spikes = detectSpikes(symbol, future);
-    let status: JournalSignal["status"] = "loss";
-    let exitPrice = future[exitIdx].quote;
-    let exitEpoch = future[exitIdx].epoch;
-    let note = "";
-
-    if (opp.kind === "spike_watch") {
-      const spike = spikes.find((sp) => sp.index > entryIdx && sp.index <= exitIdx);
-      if (spike) {
-        status = "win";
-        exitPrice = spike.quote;
-        exitEpoch = spike.epoch;
-        note = "Bootstrap: spike inside horizon";
-      } else {
-        status = "loss";
-        note = "Bootstrap: no spike in horizon";
-      }
-    } else {
-      const spike = spikes.find((sp) => sp.index > entryIdx && sp.index <= exitIdx);
-      const end = spike ? spike.index : exitIdx;
-      exitPrice = future[end].quote;
-      exitEpoch = future[end].epoch;
-      const ret = pctReturn(opp.bias, window[entryIdx].quote, exitPrice);
-      status = ret > 0 ? "win" : "loss";
-      note = spike
-        ? "Bootstrap: exited at/near spike"
-        : "Bootstrap: held to horizon";
-    }
-
-    created.push({
+    const exitHorizon = Math.min(ticks.length - 1, entryIdx + horizon);
+    const plan = analysis.spikePlan;
+    const draft: JournalSignal = {
       id: `boot-${symbol}-${window[entryIdx].epoch}-${created.length}`,
       symbol,
       kind: opp.kind,
@@ -175,15 +220,32 @@ export function bootstrapFromHistory(
       entryEpoch: window[entryIdx].epoch,
       entryTickIndex: entryIdx,
       horizonTicks: horizon,
+      target: plan?.spikeTarget,
+      stretch: plan?.stretch,
+      invalidation: plan?.invalidation,
       createdAt: Date.now(),
-      status,
-      resolvedAt: Date.now(),
-      exitPrice,
-      exitEpoch,
-      returnPct: pctReturn(opp.bias, window[entryIdx].quote, exitPrice),
-      note,
+      status: "pending",
+      outcome: "open",
       source: "bootstrap",
-    });
+    };
+
+    const spikes = detectSpikes(symbol, ticks);
+    const resolved = resolveSpikeHuntPath(
+      draft,
+      ticks,
+      entryIdx,
+      exitHorizon,
+      spikes,
+    );
+    if (!resolved) continue;
+
+    created.push({
+      ...draft,
+      ...resolved,
+      status: resolved.status ?? "loss",
+      source: "bootstrap",
+      note: resolved.note ? `Bootstrap: ${resolved.note}` : "bootstrap",
+    } as JournalSignal);
   }
 
   return journal.addBootstrap(created);

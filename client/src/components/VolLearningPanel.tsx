@@ -64,25 +64,6 @@ export function VolLearningPanel({ learning }: Props) {
           target {pct(down.targetHitRate)}
         </p>
       </div>
-
-      <div className="recent-signals">
-        <h4>Recent Vol calls</h4>
-        <ul>
-          {learning.recent.slice(0, 8).map((s) => (
-            <li key={s.id}>
-              <span className={`sig-status ${s.status}`}>{s.status}</span>
-              <span>
-                {s.bias.toUpperCase()} → {s.target.toFixed(4)}
-              </span>
-              <span>
-                {s.returnPct != null ? `${s.returnPct.toFixed(3)}%` : "…"}
-                {s.hitTarget ? " · target" : s.hitInvalidation ? " · stop" : ""}
-              </span>
-            </li>
-          ))}
-          {!learning.recent.length && <li className="muted">No journal rows yet.</li>}
-        </ul>
-      </div>
     </section>
   );
 }

@@ -119,12 +119,23 @@ export interface JournalSignal {
   confidence: number;
   entryPrice: number;
   entryEpoch: number;
+  entryTickIndex?: number;
+  horizonTicks?: number;
+  target?: number;
+  stretch?: number;
+  invalidation?: number;
   createdAt: number;
   status: SignalStatus;
+  resolvedAt?: number;
+  exitPrice?: number;
+  exitEpoch?: number;
   returnPct?: number;
   returnNetPct?: number;
   winAfterCost?: boolean;
   costPctAssumed?: number;
+  hitTarget?: boolean;
+  hitInvalidation?: boolean;
+  outcome?: "spike" | "target" | "stopout" | "expired" | "open";
   note?: string;
   source: "live" | "bootstrap";
 }
@@ -290,11 +301,14 @@ export interface VolJournalSignal {
   horizonTicks: number;
   createdAt: number;
   status: VolSignalStatus;
+  exitPrice?: number;
   returnPct?: number;
+  returnNetPct?: number;
   mfePct?: number;
   maePct?: number;
   hitTarget?: boolean;
   hitInvalidation?: boolean;
+  outcome?: "spike" | "target" | "stopout" | "expired" | "open";
   note?: string;
   source: "live" | "bootstrap";
 }

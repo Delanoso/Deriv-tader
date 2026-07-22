@@ -5,6 +5,7 @@ import { LearningPanel } from "./components/LearningPanel";
 import { ForecastPanel } from "./components/ForecastPanel";
 import { VolPanel } from "./components/VolPanel";
 import { VolLearningPanel } from "./components/VolLearningPanel";
+import { TradeBook } from "./components/TradeBook";
 import type { SymbolId } from "./types";
 import "./App.css";
 
@@ -189,6 +190,21 @@ export default function App() {
           </>
         )}
       </main>
+
+      <section className="trade-book-slot">
+        {mode === "spikes" ? (
+          <TradeBook
+            mode="spike"
+            symbol={tab}
+            refreshKey={learning?.updatedAt}
+          />
+        ) : (
+          <TradeBook
+            mode="vol"
+            refreshKey={(volLearning ?? vol.learning)?.updatedAt}
+          />
+        )}
+      </section>
 
       <footer className="foot">
         <p>{snapshot.disclaimer || "Educational use only. Not financial advice."}</p>

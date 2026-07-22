@@ -126,6 +126,9 @@ function processSymbol(symbol: SymbolId): void {
         "spike_watch",
         analysis.reliability.meanInterSpikeTicks,
       ),
+      target: analysis.spikePlan?.spikeTarget,
+      stretch: analysis.spikePlan?.stretch,
+      invalidation: analysis.spikePlan?.invalidation,
     });
     refreshLearning();
   }

@@ -94,6 +94,7 @@ export interface VolJournalSignal {
   maePct?: number;
   hitTarget?: boolean;
   hitInvalidation?: boolean;
+  outcome?: "spike" | "target" | "stopout" | "expired" | "open";
   note?: string;
   source: "live" | "bootstrap";
 }

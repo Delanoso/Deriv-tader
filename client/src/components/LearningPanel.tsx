@@ -5,6 +5,15 @@ interface Props {
   symbol: SymbolId;
 }
 
+const LABELS: Record<SymbolId, string> = {
+  BOOM300N: "B300",
+  BOOM900: "B900",
+  BOOM1000: "B1000",
+  CRASH300N: "C300",
+  CRASH900: "C900",
+  CRASH1000: "C1000",
+};
+
 export function LearningPanel({ learning, symbol }: Props) {
   if (!learning) {
     return (
@@ -22,21 +31,23 @@ export function LearningPanel({ learning, symbol }: Props) {
   const cost = learning.costPctAssumed;
   const calibrated = learning.calibrated[symbol]?.spike_watch;
 
+  const counts = (Object.keys(LABELS) as SymbolId[]).map((id) => {
+    const board = learning.live.bySymbol[id]?.byKind.spike_watch;
+    const seed = learning.seed.bySymbol[id]?.byKind.spike_watch;
+    const n = (board?.total ?? 0) + (seed?.total ?? 0);
+    return { id, n };
+  });
+
   return (
     <section className="learning-panel">
       <div className="learning-head">
         <h3>Spike-hunt scoreboard</h3>
-        <p>
-          Tracking Boom/Crash spikes only · cost {cost.toFixed(3)}% rt
-        </p>
+        <p>Tracking Boom/Crash spikes only · cost {cost.toFixed(3)}% rt</p>
       </div>
 
       <div className="learn-grid">
         <Stat label="Live spike win rate" value={pct(spikeLive?.winRate ?? null)} />
-        <Stat
-          label="After cost"
-          value={pct(spikeLive?.winRateAfterCost ?? null)}
-        />
+        <Stat label="After cost" value={pct(spikeLive?.winRateAfterCost ?? null)} />
         <Stat
           label="Avg net return"
           value={
@@ -71,31 +82,15 @@ export function LearningPanel({ learning, symbol }: Props) {
         </p>
       </div>
 
-      <div className="recent-signals">
-        <h4>Recent spike hunts</h4>
-        <ul>
-          {learning.recent
-            .filter((s) => s.symbol === symbol && s.kind === "spike_watch")
-            .slice(0, 6)
-            .map((s) => (
-              <li key={s.id} className={`sig-${s.status}`}>
-                <strong>Spike hunt</strong>
-                <em>{s.status}</em>
-                <span>
-                  {s.returnNetPct != null
-                    ? `net ${s.returnNetPct.toFixed(3)}%`
-                    : s.returnPct != null
-                      ? `${s.returnPct.toFixed(3)}%`
-                      : "…"}
-                  {s.source === "bootstrap" ? " · seed" : " · live"}
-                  {s.winAfterCost === false && s.status === "win" ? " · cost wipe" : ""}
-                </span>
-              </li>
-            ))}
-          {!learning.recent.some(
-            (s) => s.symbol === symbol && s.kind === "spike_watch",
-          ) && <li className="muted">No spike-hunt rows yet for this market.</li>}
-        </ul>
+      <div className="index-trade-counts">
+        <h4>Trades by index</h4>
+        <div className="count-chips">
+          {counts.map(({ id, n }) => (
+            <span key={id} className={id === symbol ? "active" : ""}>
+              {LABELS[id]} {n}
+            </span>
+          ))}
+        </div>
       </div>
     </section>
   );

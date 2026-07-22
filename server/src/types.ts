@@ -129,6 +129,10 @@ export interface JournalSignal {
   entryEpoch: number;
   entryTickIndex: number;
   horizonTicks: number;
+  /** Paper-trade levels snapped at entry (optional on older rows). */
+  target?: number;
+  stretch?: number;
+  invalidation?: number;
   createdAt: number;
   status: SignalStatus;
   resolvedAt?: number;
@@ -140,6 +144,10 @@ export interface JournalSignal {
   returnNetPct?: number;
   winAfterCost?: boolean;
   costPctAssumed?: number;
+  hitTarget?: boolean;
+  hitInvalidation?: boolean;
+  /** How the paper trade closed. */
+  outcome?: "spike" | "target" | "stopout" | "expired" | "open";
   note?: string;
   source: "live" | "bootstrap";
 }

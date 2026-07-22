@@ -114,6 +114,9 @@ export class SignalJournal {
     entryEpoch: number;
     entryTickIndex: number;
     horizonTicks: number;
+    target?: number;
+    stretch?: number;
+    invalidation?: number;
   }): JournalSignal | null {
     if (input.kind === "stand_aside") return null;
     if (!input.entryPrice || !input.entryEpoch) return null;
@@ -156,8 +159,12 @@ export class SignalJournal {
       entryEpoch: input.entryEpoch,
       entryTickIndex: input.entryTickIndex,
       horizonTicks: input.horizonTicks,
+      target: input.target,
+      stretch: input.stretch,
+      invalidation: input.invalidation,
       createdAt: now,
       status: "pending",
+      outcome: "open",
       source: "live",
     };
 

@@ -293,6 +293,13 @@ export function resolveVolPending(
       maePct: Number(mae.toFixed(5)),
       hitTarget,
       hitInvalidation,
+      outcome: hitTarget
+        ? "target"
+        : hitInvalidation
+          ? "stopout"
+          : retSigned > 0
+            ? "target"
+            : "expired",
       note: hitTarget
         ? "Hit primary target"
         : hitInvalidation
@@ -390,6 +397,13 @@ export function bootstrapVolHistory(
       maePct: Number(mae.toFixed(5)),
       hitTarget,
       hitInvalidation,
+      outcome: hitTarget
+        ? "target"
+        : hitInvalidation
+          ? "stopout"
+          : ret > 0
+            ? "target"
+            : "expired",
       note: "bootstrap",
       source: "bootstrap",
     });
