@@ -34,11 +34,10 @@ Optional: set `PORT` for the server (default `8787`).
 | --- | --- |
 | Live ticks | Subscribes to `BOOM1000` / `CRASH1000` via `wss://ws.derivws.com` (demo `app_id=1089`) |
 | Spike detect | Robust z-score on tick returns (up for Boom, down for Crash) |
-| Signals | `drift_follow`, `spike_watch`, `post_spike`, or `stand_aside` |
-| Indicators | RSI(14), EMA(9/21), ATR(14), momentum — used as confluence, not gospel |
+| Signals | Spike hunts only (Boom up / Crash down). Quiet drift candles are stand-aside |
 | Reliability | Mean/median inter-spike gap + rough Weibull shape; flags memoryless regimes |
-| Paper check | Simple post-spike drift hold backtest on the in-memory tick window |
-| Learning loop | Journals live signals, resolves win/loss after a horizon, blends hit-rates into calibrated confidence |
+| Paper check | Spike-hunt backtest: enter after cooldown, score next spike capture |
+| Learning loop | Journals spike hunts; live after-cost hit rates calibrate confidence |
 
 ## API
 

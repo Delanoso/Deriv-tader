@@ -100,99 +100,22 @@ function scoreOpportunity(
   learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
 ): TradeOpportunity {
   const isBoom = symbol === "BOOM1000";
-  // Between spikes: Boom drifts down, Crash drifts up.
-  const driftBias = isBoom ? "bearish" : "bullish";
+  // Target: the discontinuous spike (Boom up / Crash down) — not quiet drift candles.
   const spikeBias = isBoom ? "bullish" : "bearish";
-  const driftAction = isBoom
-    ? "Favor PUT / short-bias during quiet drift"
-    : "Favor CALL / long-bias during quiet drift";
   const spikeAction = isBoom
-    ? "Spike-watch: Boom up-spike possible"
-    : "Spike-watch: Crash down-spike possible";
+    ? "Spike hunt: look for Boom UP-spike (CALL / rise)"
+    : "Spike hunt: look for Crash DOWN-spike (PUT / fall)";
 
   const rationale: string[] = [];
-  let confidence = 0.28;
+  let confidence = 0.2;
   let kind: TradeOpportunity["kind"] = "stand_aside";
   let bias: TradeOpportunity["bias"] = "neutral";
-  let action = "No clear edge — stand aside";
+  let action = "Waiting — not in a spike-hunt window";
   let riskNote =
-    "Synthetic Boom/Crash spikes are stochastic. Treat every signal as probabilistic, never certain.";
+    "We target spikes only. Quiet drift between spikes is ignored on purpose.";
 
-  if (ctx.justSpiked) {
-    kind = "post_spike";
-    bias = driftBias;
-    action = isBoom
-      ? "Post-spike: look for resumed downward drift (PUT bias)"
-      : "Post-spike: look for resumed upward drift (CALL bias)";
-    confidence = 0.55;
-    rationale.push("A spike just printed; historical mean behavior resumes drift.");
-    riskNote =
-      "Clusters can happen. Size small and wait for the first quiet ticks after the spike.";
-  } else if (
-    ctx.ticksSinceLastSpike != null &&
-    ctx.meanInterSpike != null &&
-    ctx.ticksSinceLastSpike > ctx.meanInterSpike * 0.85
-  ) {
-    // Soft spike-watch — research says this edge is weak if memoryless
-    kind = "spike_watch";
-    bias = spikeBias;
-    action = spikeAction;
-    const ratio = ctx.ticksSinceLastSpike / (ctx.meanInterSpike || ADVERTISED_INTERVAL);
-    confidence = Math.min(0.48, 0.3 + ratio * 0.08);
-    rationale.push(
-      `${ctx.ticksSinceLastSpike} ticks since last spike vs mean ~${Math.round(ctx.meanInterSpike)}.`,
-    );
-    rationale.push(
-      "If gaps are memoryless, overtime alone is a weak predictor — keep confidence capped.",
-    );
-    riskNote =
-      "Do not average into spike bets just because you have waited a long time.";
-  } else {
-    kind = "drift_follow";
-    bias = driftBias;
-    action = driftAction;
-    confidence = 0.42;
-    rationale.push(
-      isBoom
-        ? "Boom quiet phase typically drifts lower between up-spikes."
-        : "Crash quiet phase typically drifts higher between down-spikes.",
-    );
-
-    if (ctx.ema9 != null && ctx.ema21 != null) {
-      const trendAligned =
-        (isBoom && ctx.ema9 < ctx.ema21) || (!isBoom && ctx.ema9 > ctx.ema21);
-      if (trendAligned) {
-        confidence += 0.08;
-        rationale.push("EMA9/EMA21 aligned with expected drift.");
-      } else {
-        confidence -= 0.05;
-        rationale.push("EMA cross fights the expected drift — reduce size.");
-      }
-    }
-
-    if (ctx.rsi != null) {
-      if (isBoom && ctx.rsi > 65) {
-        confidence += 0.05;
-        rationale.push(`RSI ${ctx.rsi.toFixed(1)} elevated — pullback drift more attractive.`);
-      } else if (!isBoom && ctx.rsi < 35) {
-        confidence += 0.05;
-        rationale.push(`RSI ${ctx.rsi.toFixed(1)} depressed — bounce drift more attractive.`);
-      }
-    }
-
-    if (ctx.momentum != null) {
-      const momAligned =
-        (isBoom && ctx.momentum < 0) || (!isBoom && ctx.momentum > 0);
-      if (momAligned) {
-        confidence += 0.04;
-        rationale.push("Short-horizon momentum agrees with drift.");
-      }
-    }
-
-    confidence = Math.max(0.2, Math.min(0.62, confidence));
-    riskNote =
-      "Drift trades can be wiped by the next spike. Prefer tight risk and avoid holding through fatigue.";
-  }
+  const mean = ctx.meanInterSpike ?? ADVERTISED_INTERVAL;
+  const since = ctx.ticksSinceLastSpike;
 
   if (ctx.ticksSinceLastSpike == null) {
     kind = "stand_aside";
@@ -200,16 +123,58 @@ function scoreOpportunity(
     action = "Collecting spike baseline — wait for more history";
     confidence = 0.15;
     rationale.push("Not enough confirmed spikes in the loaded window yet.");
+  } else if (ctx.justSpiked) {
+    // Cooldown after a spike — do not chase drift candles.
+    kind = "stand_aside";
+    bias = "neutral";
+    action = "Cooldown after spike — wait before next hunt";
+    confidence = 0.18;
+    rationale.push("A spike just printed. Stand aside until a new hunt window opens.");
+    riskNote = "Clusters can happen, but immediate re-entry is usually noise.";
+  } else if (since != null && since >= mean * 0.35) {
+    // Primary setup: hunt the next spike in the spike direction.
+    kind = "spike_watch";
+    bias = spikeBias;
+    action = spikeAction;
+    const ratio = since / mean;
+    // Soft ramp; keep capped because gaps are often near-memoryless.
+    confidence = Math.min(0.52, 0.26 + ratio * 0.1);
+    rationale.push(
+      `${since} ticks since last spike vs mean ~${Math.round(mean)} (${(ratio * 100).toFixed(0)}% of mean).`,
+    );
+    rationale.push(
+      isBoom
+        ? "Trade thesis: capture the next Boom up-spike, not the soft down-drift."
+        : "Trade thesis: capture the next Crash down-spike, not the soft up-drift.",
+    );
+    if (ratio < 0.85) {
+      rationale.push("Still early vs mean gap — size smaller; timing edge is weak.");
+    } else {
+      rationale.push("Past ~85% of mean gap — watch window is active (still not a guarantee).");
+    }
+    riskNote =
+      "Spike timing is stochastic. Do not average in just because you have waited.";
+  } else {
+    kind = "stand_aside";
+    bias = "neutral";
+    action = "Too soon after last spike — skip quiet candles";
+    confidence = 0.2;
+    rationale.push(
+      since != null
+        ? `Only ${since} ticks since last spike (need ~${Math.round(mean * 0.35)}+ to open a hunt).`
+        : "Spike timing baseline unavailable.",
+    );
+    rationale.push("Small between-spike candles are not the target.");
   }
 
   const raw = Number(confidence.toFixed(2));
   let calibrated = raw;
-  if (kind !== "stand_aside") {
-    const learned = learnedRates?.[kind];
+  if (kind === "spike_watch") {
+    const learned = learnedRates?.spike_watch;
     if (learned != null) {
       calibrated = blendConfidence(raw, learned, true);
       rationale.push(
-        `Learning blend: journal rate ~${(learned * 100).toFixed(0)}% → calibrated ${Math.round(calibrated * 100)}%.`,
+        `Learning blend (spike hunts only): ~${(learned * 100).toFixed(0)}% → calibrated ${Math.round(calibrated * 100)}%.`,
       );
     }
   }
@@ -226,13 +191,12 @@ function scoreOpportunity(
 }
 
 /**
- * Lightweight paper backtest: enter drift-direction after quiet ticks,
- * exit on next spike or max hold.
+ * Paper check for spike hunts: enter after cooldown, win if next spike
+ * arrives before horizon and pays the spike-direction move.
  */
-export function backtestDriftStrategy(
+export function backtestSpikeStrategy(
   symbol: SymbolId,
   ticks: Tick[],
-  holdTicks = 40,
 ): {
   trades: number;
   wins: number;
@@ -245,29 +209,37 @@ export function backtestDriftStrategy(
   }
 
   const isBoom = symbol === "BOOM1000";
-  const spikeIndexes = new Set(spikes.map((s) => s.index));
+  const gaps = spikes
+    .map((s) => s.ticksSincePrevious)
+    .filter((g): g is number => g != null && g > 0);
+  const meanGap =
+    gaps.length > 0 ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 2000;
+  const cooldown = Math.round(meanGap * 0.35);
+  const horizon = Math.max(600, Math.round(meanGap * 0.9));
+
   const returns: number[] = [];
   let wins = 0;
 
   for (let i = 0; i < spikes.length - 1; i++) {
-    const entryIndex = spikes[i].index + 5;
+    const entryIndex = spikes[i].index + cooldown;
+    const nextSpike = spikes[i + 1];
+    if (entryIndex >= nextSpike.index) continue;
     if (entryIndex >= ticks.length - 2) continue;
-    const exitCap = Math.min(entryIndex + holdTicks, spikes[i + 1].index);
-    // Skip if another spike lands immediately
-    let aborted = false;
-    for (let j = entryIndex; j <= exitCap; j++) {
-      if (spikeIndexes.has(j) && j !== spikes[i + 1].index) {
-        aborted = true;
-        break;
-      }
-    }
-    if (aborted) continue;
 
     const entry = ticks[entryIndex].quote;
-    const exit = ticks[exitCap].quote;
-    const raw = (exit - entry) / entry;
-    // Drift: Boom short, Crash long
-    const pnl = isBoom ? -raw : raw;
+    const withinHorizon = nextSpike.index - entryIndex <= horizon;
+    if (!withinHorizon) {
+      // Missed / late — count as loss with near-flat path return
+      const exit = ticks[Math.min(ticks.length - 1, entryIndex + horizon)];
+      const raw = (exit.quote - entry) / entry;
+      const pnl = (isBoom ? raw : -raw) * 100;
+      returns.push(pnl);
+      continue;
+    }
+
+    const spikeRet = ((nextSpike.quote - entry) / entry) * 100;
+    // Boom wants up-spike (positive), Crash wants down-spike (negative → flip)
+    const pnl = isBoom ? spikeRet : -spikeRet;
     returns.push(pnl);
     if (pnl > 0) wins += 1;
   }
@@ -281,6 +253,20 @@ export function backtestDriftStrategy(
     trades: returns.length,
     wins,
     winRate: Number((wins / returns.length).toFixed(3)),
-    avgReturnPct: Number((avg * 100).toFixed(4)),
+    avgReturnPct: Number(avg.toFixed(4)),
   };
+}
+
+/** @deprecated Use backtestSpikeStrategy — kept as alias for older imports. */
+export function backtestDriftStrategy(
+  symbol: SymbolId,
+  ticks: Tick[],
+  _holdTicks = 40,
+): {
+  trades: number;
+  wins: number;
+  winRate: number | null;
+  avgReturnPct: number | null;
+} {
+  return backtestSpikeStrategy(symbol, ticks);
 }

@@ -12,8 +12,8 @@ type TradeKind = Exclude<OpportunityKind, "stand_aside">;
 
 const DEFAULT_HORIZON: Record<TradeKind, number> = {
   drift_follow: 40,
-  post_spike: 35,
-  spike_watch: 1200,
+  post_spike: 25,
+  spike_watch: 1500,
 };
 
 /**
@@ -125,6 +125,8 @@ export function bootstrapFromHistory(
     const analysis = analyzeSymbol(symbol, window);
     const opp = analysis.opportunity;
     if (opp.kind === "stand_aside") continue;
+    // Spike-hunt only — skip legacy drift/post-spike seeds.
+    if (opp.kind !== "spike_watch") continue;
     if (opp.kind === lastKind) continue;
     lastKind = opp.kind;
 

@@ -31,8 +31,8 @@ export default function App() {
         </div>
         <h1>Live feedback for Boom 1000 & Crash 1000</h1>
         <p className="lede">
-          Streams Deriv ticks, marks spikes, scores setups, then journals outcomes so
-          confidence can learn from what actually happened.
+          Built to hunt Boom up-spikes and Crash down-spikes — not the quiet
+          candles between them — then journal whether the hunt paid.
         </p>
         <div className="cta-row">
           <span className={`status-pill ${live ? "live" : "off"}`}>{status}</span>

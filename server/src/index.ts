@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { createServer } from "node:http";
-import { analyzeSymbol, backtestDriftStrategy } from "./analyzer.js";
+import { analyzeSymbol, backtestSpikeStrategy } from "./analyzer.js";
 import { DerivClient, SYMBOLS } from "./derivClient.js";
 import {
   bootstrapFromHistory,
@@ -15,7 +15,6 @@ import { SignalJournal } from "./learning/journal.js";
 import type {
   LearningSummary,
   MarketSnapshot,
-  OpportunityKind,
   SymbolAnalysis,
   SymbolId,
 } from "./types.js";
@@ -74,21 +73,22 @@ function processSymbol(symbol: SymbolId): void {
   analyses[symbol] = analysis;
 
   const opp = analysis.opportunity;
+  // Journal spike hunts only — quiet drift is not the target.
   if (
-    opp.kind !== "stand_aside" &&
+    opp.kind === "spike_watch" &&
     analysis.lastQuote != null &&
     analysis.lastEpoch != null
   ) {
     journal.maybeRecordLive({
       symbol,
-      kind: opp.kind as Exclude<OpportunityKind, "stand_aside">,
+      kind: "spike_watch",
       bias: opp.bias,
       confidence: opp.calibratedConfidence ?? opp.confidence,
       entryPrice: analysis.lastQuote,
       entryEpoch: analysis.lastEpoch,
       entryTickIndex: Math.max(0, ticks.length - 1),
       horizonTicks: horizonFor(
-        opp.kind as Exclude<OpportunityKind, "stand_aside">,
+        "spike_watch",
         analysis.reliability.meanInterSpikeTicks,
       ),
     });
@@ -146,7 +146,7 @@ app.get("/api/backtest/:symbol", (req, res) => {
     return;
   }
   const ticks = client.getTicks(symbol);
-  const result = backtestDriftStrategy(symbol, ticks);
+  const result = backtestSpikeStrategy(symbol, ticks);
   res.json({ symbol, ...result, ticksUsed: ticks.length });
 });
 

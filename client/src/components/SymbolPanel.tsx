@@ -8,8 +8,8 @@ interface Props {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  drift_follow: "Drift follow",
-  spike_watch: "Spike watch",
+  drift_follow: "Drift (ignored)",
+  spike_watch: "Spike hunt",
   post_spike: "Post spike",
   stand_aside: "Stand aside",
 };
@@ -105,9 +105,9 @@ export function SymbolPanel({ analysis, active }: Props) {
 
       {backtest && (
         <div className="backtest">
-          <h3>Quiet-drift paper check</h3>
+          <h3>Spike-hunt paper check</h3>
           <p>
-            {backtest.trades} trades · win rate{" "}
+            {backtest.trades} hunts · win rate{" "}
             {backtest.winRate != null ? `${(backtest.winRate * 100).toFixed(1)}%` : "n/a"} · avg{" "}
             {backtest.avgReturnPct != null ? `${backtest.avgReturnPct.toFixed(3)}%` : "n/a"}
           </p>
