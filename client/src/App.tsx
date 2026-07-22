@@ -57,6 +57,9 @@ export default function App() {
         </p>
         <div className="cta-row">
           <span className={`status-pill ${live ? "live" : "off"}`}>{status}</span>
+          <a className="status-pill soft nav-link" href="/calculator">
+            Position calculator
+          </a>
           {mode === "spikes" ? (
             <>
               <span className="status-pill soft">

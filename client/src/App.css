@@ -931,6 +931,127 @@ button {
   color: #f5fbfb;
 }
 
+.nav-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.nav-link:hover {
+  border-color: rgba(13, 148, 136, 0.45);
+}
+
+.calc-controls {
+  margin-bottom: 1rem;
+}
+
+.calc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.calc-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0.85rem;
+}
+
+.calc-grid label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.calc-grid label.dim {
+  opacity: 0.45;
+}
+
+.calc-grid input[type="number"] {
+  appearance: textfield;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.75);
+  padding: 0.55rem 0.65rem;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  color: var(--ink);
+  width: 100%;
+}
+
+.calc-toggle {
+  display: flex !important;
+  align-items: center;
+  gap: 0.45rem;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 0.88rem !important;
+  font-weight: 600 !important;
+  padding-bottom: 0.45rem;
+}
+
+.calc-formula {
+  margin: 0.85rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.calc-focus .muted {
+  margin: 0.25rem 0 0;
+}
+
+.calc-results {
+  margin-top: 1rem;
+}
+
+.calc-table-panel {
+  margin-top: 1rem;
+}
+
+.calc-table-panel .trade-table-wrap {
+  max-height: 520px;
+}
+
+.trade-table tr.is-focus {
+  background: rgba(13, 148, 136, 0.06);
+}
+
+.cell-input {
+  width: 100%;
+  min-width: 7rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0.35rem 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+
+.linkish {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 650;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.linkish:hover {
+  color: #0f766e;
+}
+
+@media (max-width: 900px) {
+  .calc-grid,
+  .calc-grid.three {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .foot {
   margin-top: 1.5rem;
   padding-top: 0.75rem;
@@ -949,5 +1070,10 @@ button {
 
   .chart-shell {
     min-height: 280px;
+  }
+
+  .calc-grid,
+  .calc-grid.three {
+    grid-template-columns: 1fr;
   }
 }

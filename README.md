@@ -52,6 +52,10 @@ Optional: set `PORT` for the server (default `8787`).
 - `GET /api/vol/signals` — recent Vol journal rows
 - `WS /ws` — live `snapshot`, `learning`, `vol`, `vol_learning`, `status`, `vol_status`
 
+### Position calculator
+
+Open `/calculator` for account-risk → position notional sizing across Boom/Crash 300·900·1000 and Volatility 250.
+
 ### Learning loop
 
 1. Seed: on first history load, bootstrap resolved journal rows from past ticks
