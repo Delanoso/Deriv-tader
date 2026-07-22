@@ -54,7 +54,7 @@ Optional: set `PORT` for the server (default `8787`).
 
 ### Position calculator
 
-Open `/calculator` for account-risk → position notional sizing across Boom/Crash 300·900·1000 and Volatility 250.
+Open `/calculator` — pick an index, enter stake (0.1–max), get an approximate **$ per tick**. Optionally enter tick count for a total.
 
 ### Learning loop
 
