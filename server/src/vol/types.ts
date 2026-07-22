@@ -3,7 +3,7 @@ export type VolSymbolId = "1HZ250V";
 export const VOL_SYMBOLS: VolSymbolId[] = ["1HZ250V"];
 
 export const VOL_DISPLAY: Record<VolSymbolId, string> = {
-  "1HZ250V": "Volatility 250 (1s)",
+  "1HZ250V": "Volatility 250 · 1m",
 };
 
 export type VolBias = "up" | "down" | "neutral";
@@ -63,6 +63,11 @@ export interface VolAnalysis {
   lastQuote: number | null;
   lastEpoch: number | null;
   ticksCollected: number;
+  timeframe: {
+    candleSec: number;
+    minHoldTicks: number;
+    horizonTicks: number;
+  };
   indicators: VolIndicators;
   prediction: VolPrediction;
   candles: VolCandle[];

@@ -53,7 +53,7 @@ export default function App() {
         <p className="lede">
           {mode === "spikes"
             ? "Built to hunt Boom up-spikes and Crash down-spikes — not the quiet candles between them — then journal whether the hunt paid."
-            : "Separate research stack for 1HZ250V: predict up vs down, project target / stretch / invalidation from ATR + swings, and journal path quality."}
+            : "Separate research stack for Volatility 250 on 1-minute candles. Paper trades hold at least 3 minutes before target/stop exits."}
         </p>
         <div className="cta-row">
           <span className={`status-pill ${live ? "live" : "off"}`}>{status}</span>
@@ -174,7 +174,9 @@ export default function App() {
                       prints first.
                     </p>
                     <p className="timing-note">
-                      Horizon {volAnalysis.prediction.horizonTicks} ticks · method{" "}
+                      1m chart · hold ≥
+                      {(volAnalysis.timeframe?.minHoldTicks ?? 180) / 60}m · horizon{" "}
+                      {Math.round(volAnalysis.prediction.horizonTicks / 60)}m ·{" "}
                       {volAnalysis.prediction.targets.method}
                     </p>
                   </>

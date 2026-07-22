@@ -20,7 +20,7 @@ export function VolLearningPanel({ learning }: Props) {
     <section className="learning-panel">
       <div className="learning-head">
         <h3>Vol 250 scoreboard</h3>
-        <p>Direction calls scored to target / invalidation / horizon</p>
+        <p>1m direction calls · hold ≥3m · scored to target / stop / horizon</p>
       </div>
 
       <div className="learn-grid">

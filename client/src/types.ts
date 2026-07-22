@@ -279,6 +279,11 @@ export interface VolAnalysis {
   lastQuote: number | null;
   lastEpoch: number | null;
   ticksCollected: number;
+  timeframe?: {
+    candleSec: number;
+    minHoldTicks: number;
+    horizonTicks: number;
+  };
   indicators: VolIndicators;
   prediction: VolPrediction;
   candles: Candle[];

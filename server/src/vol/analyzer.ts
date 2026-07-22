@@ -12,14 +12,19 @@ import type {
 } from "./types.js";
 import { VOL_DISPLAY } from "./types.js";
 
-const HORIZON_TICKS = 400;
+/** 1-minute candle buckets for Vol research. */
+export const VOL_CANDLE_SEC = 60;
+/** 1HZ250V ticks are ~1s — hold at least 3 minutes before any exit. */
+export const VOL_MIN_HOLD_TICKS = Number(process.env.VOL_MIN_HOLD_TICKS || 180);
+/** Allow trades to run up to 15 minutes on the 1m timeframe. */
+export const VOL_HORIZON_TICKS = Number(process.env.VOL_HORIZON_TICKS || 900);
 
 export function analyzeVol(
   symbol: VolSymbolId,
   ticks: VolTick[],
   calibrated?: Partial<Record<"up" | "down", number>>,
 ): VolAnalysis {
-  const candles = buildCandlesFromTicks(ticks as Tick[], 60);
+  const candles = buildCandlesFromTicks(ticks as Tick[], VOL_CANDLE_SEC);
   const closes = candles.map((c) => c.close);
   const last = ticks.length ? ticks[ticks.length - 1] : null;
   const price = last?.quote ?? null;
@@ -50,6 +55,11 @@ export function analyzeVol(
     lastQuote: price,
     lastEpoch: last?.epoch ?? null,
     ticksCollected: ticks.length,
+    timeframe: {
+      candleSec: VOL_CANDLE_SEC,
+      minHoldTicks: VOL_MIN_HOLD_TICKS,
+      horizonTicks: VOL_HORIZON_TICKS,
+    },
     indicators: {
       rsi14,
       ema9,
@@ -61,7 +71,7 @@ export function analyzeVol(
     },
     prediction,
     candles: candles.slice(-180) as VolCandle[],
-    recentTicks: ticks.slice(-400),
+    recentTicks: ticks.slice(-Math.max(400, VOL_HORIZON_TICKS)),
     updatedAt: Date.now(),
   };
 }
@@ -86,7 +96,7 @@ function scoreVolDirection(ctx: {
       bias: "neutral",
       action: "Collecting volatility baseline",
       confidence: 0.15,
-      horizonTicks: HORIZON_TICKS,
+      horizonTicks: VOL_HORIZON_TICKS,
       targets: {
         target: 0,
         stretch: 0,
@@ -146,34 +156,37 @@ function scoreVolDirection(ctx: {
   let method = "ATR projection";
 
   if (bias === "up") {
-    const atrTarget = price + atr * 1.5;
-    const atrStretch = price + atr * 2.5;
+    // Wider 1m levels so 3m+ holds have room to work.
+    const atrTarget = price + atr * 2.2;
+    const atrStretch = price + atr * 3.5;
     const struct =
       ctx.swingHigh != null && ctx.swingHigh > price ? ctx.swingHigh : null;
     target = struct != null && struct < atrTarget ? struct : atrTarget;
     stretch = Math.max(atrStretch, struct ?? atrStretch);
     invalidation =
       ctx.swingLow != null && ctx.swingLow < price
-        ? Math.max(ctx.swingLow, price - atr)
-        : price - atr;
-    if (struct != null && struct < atrTarget) method = "Swing high + ATR stretch";
+        ? Math.max(ctx.swingLow, price - atr * 1.2)
+        : price - atr * 1.2;
+    if (struct != null && struct < atrTarget) method = "1m swing high + ATR stretch";
+    else method = "1m ATR projection";
     rationale.push(
-      `Upside path: target ${target.toFixed(5)} (~${pct(price, target)}%), stretch ${stretch.toFixed(5)}.`,
+      `1m upside: target ${target.toFixed(5)} (~${pct(price, target)}%), stretch ${stretch.toFixed(5)} · hold ≥${VOL_MIN_HOLD_TICKS / 60}m.`,
     );
   } else if (bias === "down") {
-    const atrTarget = price - atr * 1.5;
-    const atrStretch = price - atr * 2.5;
+    const atrTarget = price - atr * 2.2;
+    const atrStretch = price - atr * 3.5;
     const struct =
       ctx.swingLow != null && ctx.swingLow < price ? ctx.swingLow : null;
     target = struct != null && struct > atrTarget ? struct : atrTarget;
     stretch = Math.min(atrStretch, struct ?? atrStretch);
     invalidation =
       ctx.swingHigh != null && ctx.swingHigh > price
-        ? Math.min(ctx.swingHigh, price + atr)
-        : price + atr;
-    if (struct != null && struct > atrTarget) method = "Swing low + ATR stretch";
+        ? Math.min(ctx.swingHigh, price + atr * 1.2)
+        : price + atr * 1.2;
+    if (struct != null && struct > atrTarget) method = "1m swing low + ATR stretch";
+    else method = "1m ATR projection";
     rationale.push(
-      `Downside path: target ${target.toFixed(5)} (~${pct(price, target)}%), stretch ${stretch.toFixed(5)}.`,
+      `1m downside: target ${target.toFixed(5)} (~${pct(price, target)}%), stretch ${stretch.toFixed(5)} · hold ≥${VOL_MIN_HOLD_TICKS / 60}m.`,
     );
   } else {
     target = price + atr;
@@ -206,7 +219,7 @@ function scoreVolDirection(ctx: {
           : "No directional call — wait",
     confidence: raw,
     calibratedConfidence: calibrated,
-    horizonTicks: HORIZON_TICKS,
+    horizonTicks: VOL_HORIZON_TICKS,
     targets: {
       target: Number(target.toFixed(6)),
       stretch: Number(stretch.toFixed(6)),
@@ -214,11 +227,11 @@ function scoreVolDirection(ctx: {
       expectedMovePct: Number(Math.abs(pctNum(price, target)).toFixed(4)),
       method,
       expectedEpoch:
-        ctx.lastEpoch != null ? ctx.lastEpoch + HORIZON_TICKS : null,
+        ctx.lastEpoch != null ? ctx.lastEpoch + VOL_HORIZON_TICKS : null,
     },
     rationale,
     riskNote:
-      "Vol 250 moves fast. Treat targets as research levels, not guarantees. Exit if invalidation prints first.",
+      `Vol 250 on 1m candles. Paper trades hold ≥${VOL_MIN_HOLD_TICKS / 60} minutes before target/stop exits; horizon ${VOL_HORIZON_TICKS / 60}m.`,
   };
 }
 
@@ -231,14 +244,18 @@ export function resolveVolPending(
   for (const signal of pending) {
     const entryIdx = findIndex(ticks, signal.entryEpoch, signal.entryTickIndex);
     if (entryIdx < 0) continue;
-    const end = Math.min(ticks.length - 1, entryIdx + signal.horizonTicks);
-    if (ticks.length - 1 - entryIdx < 8) continue;
+    const horizon = Math.max(signal.horizonTicks, VOL_MIN_HOLD_TICKS);
+    const end = Math.min(ticks.length - 1, entryIdx + horizon);
+    const elapsed = ticks.length - 1 - entryIdx;
+    // Enforce minimum hold — no target/stop exit before 3 minutes.
+    if (elapsed < VOL_MIN_HOLD_TICKS) continue;
 
     let hitTarget = false;
     let hitInvalidation = false;
     let exitIdx = end;
     let mfe = 0;
     let mae = 0;
+    const exitFrom = entryIdx + VOL_MIN_HOLD_TICKS;
 
     for (let i = entryIdx + 1; i <= end; i++) {
       const px = ticks[i].quote;
@@ -247,6 +264,9 @@ export function resolveVolPending(
       const adv = -fav;
       mfe = Math.max(mfe, fav);
       mae = Math.max(mae, adv);
+
+      // Only allow exits after the minimum hold window.
+      if (i < exitFrom) continue;
 
       if (signal.bias === "up") {
         if (px >= signal.target) {
@@ -275,6 +295,7 @@ export function resolveVolPending(
 
     const reachedHorizon = exitIdx === end && !hitTarget && !hitInvalidation;
     if (!hitTarget && !hitInvalidation && !reachedHorizon) continue;
+    if (reachedHorizon && elapsed < horizon) continue;
 
     const exit = ticks[exitIdx];
     const retSigned =
@@ -314,13 +335,17 @@ export function resolveVolPending(
 export function bootstrapVolHistory(
   symbol: VolSymbolId,
   ticks: VolTick[],
-  max = 60,
+  max = 40,
 ): VolJournalSignal[] {
-  if (ticks.length < 900) return [];
+  if (ticks.length < VOL_HORIZON_TICKS + 500) return [];
   const out: VolJournalSignal[] = [];
   let lastBias: string | null = null;
 
-  for (let i = 500; i < ticks.length - HORIZON_TICKS && out.length < max; i += 80) {
+  for (
+    let i = 500;
+    i < ticks.length - VOL_HORIZON_TICKS && out.length < max;
+    i += VOL_MIN_HOLD_TICKS
+  ) {
     const window = ticks.slice(0, i + 1);
     const analysis = analyzeVol(symbol, window);
     const pred = analysis.prediction;
@@ -331,7 +356,9 @@ export function bootstrapVolHistory(
     const entry = window[window.length - 1];
     const future = ticks;
     const entryIdx = i;
-    const end = Math.min(ticks.length - 1, entryIdx + pred.horizonTicks);
+    const horizon = Math.max(pred.horizonTicks, VOL_MIN_HOLD_TICKS);
+    const end = Math.min(ticks.length - 1, entryIdx + horizon);
+    const exitFrom = entryIdx + VOL_MIN_HOLD_TICKS;
     let hitTarget = false;
     let hitInvalidation = false;
     let exitIdx = end;
@@ -344,6 +371,7 @@ export function bootstrapVolHistory(
       const fav = pred.bias === "up" ? signed : -signed;
       mfe = Math.max(mfe, fav);
       mae = Math.max(mae, -fav);
+      if (j < exitFrom) continue;
       if (pred.bias === "up") {
         if (px >= pred.targets.target) {
           hitTarget = true;
@@ -370,6 +398,7 @@ export function bootstrapVolHistory(
     }
 
     const exit = future[exitIdx];
+    const holdTicks = exitIdx - entryIdx;
     const ret =
       pred.bias === "up"
         ? ((exit.quote - entry.quote) / entry.quote) * 100
@@ -386,7 +415,7 @@ export function bootstrapVolHistory(
       target: pred.targets.target,
       stretch: pred.targets.stretch,
       invalidation: pred.targets.invalidation,
-      horizonTicks: pred.horizonTicks,
+      horizonTicks: horizon,
       createdAt: Date.now(),
       status: hitTarget ? "win" : hitInvalidation || ret <= 0 ? "loss" : "win",
       resolvedAt: Date.now(),
@@ -404,7 +433,7 @@ export function bootstrapVolHistory(
           : ret > 0
             ? "target"
             : "expired",
-      note: "bootstrap",
+      note: `bootstrap · held ${Math.round(holdTicks / 60)}m`,
       source: "bootstrap",
     });
   }

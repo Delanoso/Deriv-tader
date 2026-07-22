@@ -67,6 +67,7 @@ export function VolPanel({ analysis }: Props) {
         spikes={[]}
         accent={accent}
         levels={levels}
+        candleStepSec={analysis.timeframe?.candleSec ?? 60}
       />
 
       {openTrade && (
@@ -95,7 +96,18 @@ export function VolPanel({ analysis }: Props) {
       </div>
 
       <div className="metrics">
-        <Metric label="Horizon" value={`${pred.horizonTicks} ticks`} />
+        <Metric
+          label="Timeframe"
+          value={`${(analysis.timeframe?.candleSec ?? 60) / 60}m`}
+        />
+        <Metric
+          label="Min hold"
+          value={`${(analysis.timeframe?.minHoldTicks ?? pred.horizonTicks) / 60}m`}
+        />
+        <Metric
+          label="Horizon"
+          value={`${Math.round(pred.horizonTicks / 60)}m`}
+        />
         <Metric label="Ticks loaded" value={String(analysis.ticksCollected)} />
         <Metric label="RSI 14" value={analysis.indicators.rsi14?.toFixed(1) ?? "—"} />
         <Metric
@@ -103,18 +115,6 @@ export function VolPanel({ analysis }: Props) {
           value={
             analysis.indicators.momentum20 != null
               ? `${analysis.indicators.momentum20.toFixed(2)}%`
-              : "—"
-          }
-        />
-        <Metric
-          label="ATR 14"
-          value={analysis.indicators.atr14?.toFixed(5) ?? "—"}
-        />
-        <Metric
-          label="Swing H / L"
-          value={
-            analysis.indicators.swingHigh != null && analysis.indicators.swingLow != null
-              ? `${analysis.indicators.swingHigh.toFixed(3)} / ${analysis.indicators.swingLow.toFixed(3)}`
               : "—"
           }
         />

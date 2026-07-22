@@ -74,7 +74,7 @@ export class VolJournal {
     if (input.bias === ("neutral" as VolBias)) return null;
     const key = `${input.bias}:${input.target.toFixed(5)}`;
     const now = Date.now();
-    if (this.lastKey === key && now - this.lastAt < 120_000) return null;
+    if (this.lastKey === key && now - this.lastAt < 180_000) return null;
     if (this.store.signals.some((s) => s.status === "pending" && s.bias === input.bias)) {
       return null;
     }
