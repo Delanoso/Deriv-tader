@@ -7,11 +7,14 @@ import type {
   KindStats,
   LearningSummary,
   OpportunityKind,
+  RegimeBucketStats,
   Scoreboard,
   SymbolId,
 } from "../types.js";
 import { SYMBOL_IDS } from "../symbols.js";
 import { DEFAULT_COST_PCT, withCostFields } from "./costs.js";
+import { decayWeightedMean, decayWeightedRate } from "./decay.js";
+import type { TradeRegime } from "./regimes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, "../../data");
@@ -37,6 +40,12 @@ function emptyStats(kind: KindStats["kind"]): KindStats {
     lossesAfterCost: 0,
     winRateAfterCost: null,
     avgReturnNetPct: null,
+    expectancyNetPct: null,
+    avgMfePct: null,
+    avgMaePct: null,
+    decayWinRateAfterCost: null,
+    decayExpectancyNetPct: null,
+    decayEffectiveN: 0,
   };
 }
 
@@ -83,7 +92,6 @@ export class SignalJournal {
     this.backfillCosts();
   }
 
-  /** Ensure older journal rows have net/cost fields. */
   private backfillCosts(): void {
     let changed = false;
     for (const s of this.store.signals) {
@@ -117,16 +125,17 @@ export class SignalJournal {
     target?: number;
     stretch?: number;
     invalidation?: number;
+    regime?: TradeRegime;
   }): JournalSignal | null {
     if (input.kind === "stand_aside") return null;
     if (!input.entryPrice || !input.entryEpoch) return null;
 
-    const key = `${input.kind}:${input.bias}`;
+    const key = `${input.kind}:${input.bias}:${input.regime?.ageRegime ?? "?"}`;
     const now = Date.now();
     const prevKey = this.lastLiveKey[input.symbol];
     const prevAt = this.lastLiveAt[input.symbol] ?? 0;
     const sameSetup = prevKey === key;
-    const cooldownMs = 90_000;
+    const cooldownMs = 120_000;
 
     if (sameSetup && now - prevAt < cooldownMs) return null;
 
@@ -152,7 +161,7 @@ export class SignalJournal {
     const signal: JournalSignal = {
       id: makeId(input.symbol, input.entryEpoch),
       symbol: input.symbol,
-      kind: input.kind,
+      kind: input.kind as TradeKind,
       bias: input.bias,
       confidence: input.confidence,
       entryPrice: input.entryPrice,
@@ -162,6 +171,7 @@ export class SignalJournal {
       target: input.target,
       stretch: input.stretch,
       invalidation: input.invalidation,
+      regime: input.regime,
       createdAt: now,
       status: "pending",
       outcome: "open",
@@ -212,6 +222,8 @@ export class SignalJournal {
     const calibrated: LearningSummary["calibrated"] = {};
     const liveBySymbol = {} as LearningSummary["live"]["bySymbol"];
     const seedBySymbol = {} as LearningSummary["seed"]["bySymbol"];
+    const regimes: LearningSummary["regimes"] = {};
+    const insights: string[] = [];
 
     for (const symbol of symbols) {
       const subset = all.filter((s) => s.symbol === symbol);
@@ -221,23 +233,49 @@ export class SignalJournal {
       bySymbol[symbol] = scoreboardParts(subset);
       liveBySymbol[symbol] = toScoreboard(liveSub);
       seedBySymbol[symbol] = toScoreboard(seedSub);
+      regimes[symbol] = regimeBuckets(
+        liveSub.filter((s) => s.kind === "spike_watch"),
+      );
 
-      // Calibrate ONLY from live decisions.
       calibrated[symbol] = {};
       const kinds: TradeKind[] = ["drift_follow", "spike_watch", "post_spike"];
       for (const kind of kinds) {
+        const kindRows = liveSub.filter((s) => s.kind === kind);
         const st = liveBySymbol[symbol].byKind[kind];
         if (!st) continue;
-        // Prefer after-cost win rate when enough samples exist.
-        const rate = st.winRateAfterCost ?? st.winRate;
-        const n = st.winsAfterCost + st.lossesAfterCost || st.wins + st.losses;
-        if (rate != null && n >= 8) {
-          const shrink = n / (n + 12);
-          calibrated[symbol]![kind] = Number(
-            (0.5 * (1 - shrink) + rate * shrink).toFixed(3),
-          );
+
+        const decayWr = decayWeightedRate(kindRows, (s) =>
+          s.winAfterCost != null
+            ? s.winAfterCost
+            : s.returnNetPct != null
+              ? s.returnNetPct > 0
+              : null,
+        );
+        const decayExp = decayWeightedMean(kindRows, (s) => s.returnNetPct ?? null);
+
+        // Prefer decay-weighted expectancy mapped into [0.2, 0.7] when enough mass.
+        const n = Math.max(st.decayEffectiveN, decayWr.effectiveN, decayExp.effectiveN);
+        if (n >= 8) {
+          let learned = decayWr.rate ?? st.winRateAfterCost ?? st.winRate;
+          if (decayExp.mean != null) {
+            // Map expectancy (%) into a soft probability-like score.
+            const expScore = 0.5 + Math.tanh(decayExp.mean * 8) * 0.25;
+            learned =
+              learned != null
+                ? Number((learned * 0.55 + expScore * 0.45).toFixed(3))
+                : Number(expScore.toFixed(3));
+          }
+          if (learned != null) {
+            const shrink = n / (n + 12);
+            calibrated[symbol]![kind] = Number(
+              (0.5 * (1 - shrink) + learned * shrink).toFixed(3),
+            );
+          }
         }
       }
+
+      const insight = regimeInsight(symbol, regimes[symbol] ?? []);
+      if (insight) insights.push(insight);
     }
 
     const liveOverall = statsFor(liveRows, "all");
@@ -271,11 +309,51 @@ export class SignalJournal {
         overallWinRateAfterCost: seedOverall.winRateAfterCost,
       },
       bySymbol,
+      regimes,
+      insights: insights.slice(0, 8),
       recent: [...all].slice(-12).reverse(),
       calibrated,
       updatedAt: Date.now(),
     };
   }
+}
+
+function regimeBuckets(signals: JournalSignal[]): RegimeBucketStats[] {
+  const keys: Array<TradeRegime["ageRegime"]> = [
+    "early",
+    "mid",
+    "late",
+    "overdue",
+  ];
+  return keys.map((key) => ({
+    key,
+    label: key,
+    stats: statsFor(
+      signals.filter((s) => (s.regime?.ageRegime ?? "mid") === key),
+      "spike_watch",
+    ),
+  }));
+}
+
+function regimeInsight(
+  symbol: SymbolId,
+  buckets: RegimeBucketStats[],
+): string | null {
+  const ranked = buckets
+    .map((b) => ({
+      key: b.key,
+      n: b.stats.winsAfterCost + b.stats.lossesAfterCost,
+      exp: b.stats.decayExpectancyNetPct ?? b.stats.expectancyNetPct,
+      wr: b.stats.decayWinRateAfterCost ?? b.stats.winRateAfterCost,
+    }))
+    .filter((b) => b.n >= 5 && b.exp != null);
+  if (ranked.length < 2) return null;
+  ranked.sort((a, b) => (b.exp ?? -99) - (a.exp ?? -99));
+  const best = ranked[0];
+  const worst = ranked[ranked.length - 1];
+  if (best.exp == null || worst.exp == null) return null;
+  if (best.exp - worst.exp < 0.01) return null;
+  return `${symbol}: ${best.key} hunts beat ${worst.key} (exp ${best.exp.toFixed(3)}% vs ${worst.exp.toFixed(3)}%) — prefer ${best.key} age regime.`;
 }
 
 function scoreboardParts(signals: JournalSignal[]): {
@@ -311,7 +389,8 @@ function statsFor(signals: JournalSignal[], kind: KindStats["kind"]): KindStats 
   const losses = signals.filter((s) => s.status === "loss");
   const pending = signals.filter((s) => s.status === "pending").length;
   const decided = wins.length + losses.length;
-  const returns = [...wins, ...losses]
+  const decidedRows = [...wins, ...losses];
+  const returns = decidedRows
     .map((s) => s.returnPct)
     .filter((v): v is number => v != null);
   const avg =
@@ -319,15 +398,16 @@ function statsFor(signals: JournalSignal[], kind: KindStats["kind"]): KindStats 
       ? returns.reduce((a, b) => a + b, 0) / returns.length
       : null;
 
-  const decidedRows = [...wins, ...losses];
-  const netRows = decidedRows.map((s) => {
-    if (s.returnNetPct != null && s.winAfterCost != null) {
-      return { net: s.returnNetPct, win: s.winAfterCost };
-    }
-    if (s.returnPct == null) return null;
-    const fields = withCostFields(s.returnPct);
-    return { net: fields.returnNetPct, win: fields.winAfterCost };
-  }).filter((v): v is { net: number; win: boolean } => v != null);
+  const netRows = decidedRows
+    .map((s) => {
+      if (s.returnNetPct != null && s.winAfterCost != null) {
+        return { net: s.returnNetPct, win: s.winAfterCost };
+      }
+      if (s.returnPct == null) return null;
+      const fields = withCostFields(s.returnPct);
+      return { net: fields.returnNetPct, win: fields.winAfterCost };
+    })
+    .filter((v): v is { net: number; win: boolean } => v != null);
 
   const winsAfterCost = netRows.filter((r) => r.win).length;
   const lossesAfterCost = netRows.length - winsAfterCost;
@@ -335,6 +415,26 @@ function statsFor(signals: JournalSignal[], kind: KindStats["kind"]): KindStats 
     netRows.length > 0
       ? netRows.reduce((a, b) => a + b.net, 0) / netRows.length
       : null;
+
+  const mfes = decidedRows
+    .map((s) => s.mfePct)
+    .filter((v): v is number => v != null);
+  const maes = decidedRows
+    .map((s) => s.maePct)
+    .filter((v): v is number => v != null);
+  const avgMfe =
+    mfes.length > 0 ? mfes.reduce((a, b) => a + b, 0) / mfes.length : null;
+  const avgMae =
+    maes.length > 0 ? maes.reduce((a, b) => a + b, 0) / maes.length : null;
+
+  const decayWr = decayWeightedRate(signals, (s) =>
+    s.winAfterCost != null
+      ? s.winAfterCost
+      : s.returnNetPct != null
+        ? s.returnNetPct > 0
+        : null,
+  );
+  const decayExp = decayWeightedMean(signals, (s) => s.returnNetPct ?? null);
 
   return {
     kind,
@@ -350,6 +450,12 @@ function statsFor(signals: JournalSignal[], kind: KindStats["kind"]): KindStats 
       ? Number((winsAfterCost / netRows.length).toFixed(3))
       : null,
     avgReturnNetPct: avgNet != null ? Number(avgNet.toFixed(4)) : null,
+    expectancyNetPct: avgNet != null ? Number(avgNet.toFixed(4)) : null,
+    avgMfePct: avgMfe != null ? Number(avgMfe.toFixed(4)) : null,
+    avgMaePct: avgMae != null ? Number(avgMae.toFixed(4)) : null,
+    decayWinRateAfterCost: decayWr.rate,
+    decayExpectancyNetPct: decayExp.mean,
+    decayEffectiveN: Math.max(decayWr.effectiveN, decayExp.effectiveN),
   };
 }
 

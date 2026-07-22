@@ -1015,11 +1015,20 @@ button {
   color: var(--ink-soft);
 }
 
-.calc-formula {
-  margin: 0.55rem 0 0;
-  color: var(--ink-soft);
-  font-size: 0.88rem;
-  line-height: 1.45;
+.regime-box {
+  margin-top: 0.85rem;
+}
+
+.regime-box h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
+}
+
+.learn-tip {
+  margin-top: 0.75rem !important;
+  padding: 0.55rem 0.65rem;
+  border-left: 3px solid var(--teal);
+  background: rgba(13, 148, 136, 0.08);
 }
 
 @media (max-width: 720px) {

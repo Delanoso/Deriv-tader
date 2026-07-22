@@ -88,6 +88,7 @@ export interface KillStatus {
   reason: string | null;
   liveSamples: number;
   liveWinRateAfterCost: number | null;
+  liveExpectancyNetPct?: number | null;
   thresholdSamples: number;
   thresholdWinRateAfterCost: number;
   warning: boolean;
@@ -124,6 +125,16 @@ export interface JournalSignal {
   target?: number;
   stretch?: number;
   invalidation?: number;
+  regime?: {
+    ageRegime: "early" | "mid" | "late" | "overdue";
+    ageRatio: number | null;
+    weibullShape: number | null;
+    timingEdgeWeak: boolean;
+    rsi14: number | null;
+    hourUtc: number;
+    pSpike500: number | null;
+    stopPct: number | null;
+  };
   createdAt: number;
   status: SignalStatus;
   resolvedAt?: number;
@@ -135,6 +146,8 @@ export interface JournalSignal {
   costPctAssumed?: number;
   hitTarget?: boolean;
   hitInvalidation?: boolean;
+  mfePct?: number;
+  maePct?: number;
   outcome?: "spike" | "target" | "stopout" | "expired" | "open";
   note?: string;
   source: "live" | "bootstrap";
@@ -152,6 +165,12 @@ export interface KindStats {
   lossesAfterCost: number;
   winRateAfterCost: number | null;
   avgReturnNetPct: number | null;
+  expectancyNetPct?: number | null;
+  avgMfePct?: number | null;
+  avgMaePct?: number | null;
+  decayWinRateAfterCost?: number | null;
+  decayExpectancyNetPct?: number | null;
+  decayEffectiveN?: number;
 }
 
 export interface Scoreboard {
@@ -161,6 +180,12 @@ export interface Scoreboard {
   pending: number;
   overallWinRate: number | null;
   overallWinRateAfterCost: number | null;
+}
+
+export interface RegimeBucketStats {
+  key: string;
+  label: string;
+  stats: KindStats;
 }
 
 export interface LearningSummary {
@@ -191,6 +216,8 @@ export interface LearningSummary {
       byKind: Partial<Record<Exclude<OpportunityKind, "stand_aside">, KindStats>>;
     }
   >;
+  regimes?: Partial<Record<SymbolId, RegimeBucketStats[]>>;
+  insights?: string[];
   recent: JournalSignal[];
   calibrated: Partial<
     Record<

@@ -96,6 +96,7 @@ export interface KillStatus {
   reason: string | null;
   liveSamples: number;
   liveWinRateAfterCost: number | null;
+  liveExpectancyNetPct?: number | null;
   thresholdSamples: number;
   thresholdWinRateAfterCost: number;
   warning: boolean;
@@ -133,6 +134,17 @@ export interface JournalSignal {
   target?: number;
   stretch?: number;
   invalidation?: number;
+  /** Regime snapshot at entry (learning feature set). */
+  regime?: {
+    ageRegime: "early" | "mid" | "late" | "overdue";
+    ageRatio: number | null;
+    weibullShape: number | null;
+    timingEdgeWeak: boolean;
+    rsi14: number | null;
+    hourUtc: number;
+    pSpike500: number | null;
+    stopPct: number | null;
+  };
   createdAt: number;
   status: SignalStatus;
   resolvedAt?: number;
@@ -146,6 +158,10 @@ export interface JournalSignal {
   costPctAssumed?: number;
   hitTarget?: boolean;
   hitInvalidation?: boolean;
+  /** Max favorable excursion % along the path. */
+  mfePct?: number;
+  /** Max adverse excursion % along the path. */
+  maePct?: number;
   /** How the paper trade closed. */
   outcome?: "spike" | "target" | "stopout" | "expired" | "open";
   note?: string;
@@ -165,6 +181,15 @@ export interface KindStats {
   lossesAfterCost: number;
   winRateAfterCost: number | null;
   avgReturnNetPct: number | null;
+  /** Alias of avg net return — primary optimization target. */
+  expectancyNetPct: number | null;
+  avgMfePct: number | null;
+  avgMaePct: number | null;
+  /** Recency-weighted after-cost win rate. */
+  decayWinRateAfterCost: number | null;
+  /** Recency-weighted expectancy. */
+  decayExpectancyNetPct: number | null;
+  decayEffectiveN: number;
 }
 
 export interface Scoreboard {
@@ -174,6 +199,12 @@ export interface Scoreboard {
   pending: number;
   overallWinRate: number | null;
   overallWinRateAfterCost: number | null;
+}
+
+export interface RegimeBucketStats {
+  key: string;
+  label: string;
+  stats: KindStats;
 }
 
 export interface LearningSummary {
@@ -207,8 +238,12 @@ export interface LearningSummary {
       byKind: Partial<Record<Exclude<OpportunityKind, "stand_aside">, KindStats>>;
     }
   >;
+  /** Live spike-hunt stats broken down by age regime (per symbol). */
+  regimes: Partial<Record<SymbolId, RegimeBucketStats[]>>;
+  /** Short auto insights from ablation-style regime comparison. */
+  insights: string[];
   recent: JournalSignal[];
-  /** Calibrated from LIVE resolved samples only. */
+  /** Calibrated from LIVE decay-weighted expectancy/hit-rate only. */
   calibrated: Partial<
     Record<
       SymbolId,

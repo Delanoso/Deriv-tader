@@ -7,6 +7,7 @@ import type {
 } from "../types.js";
 import { SignalJournal } from "./journal.js";
 import { analyzeSymbol } from "../analyzer.js";
+import { buildRegime } from "./regimes.js";
 
 type TradeKind = Exclude<OpportunityKind, "stand_aside">;
 
@@ -93,9 +94,15 @@ function resolveSpikeHuntPath(
   let hitInvalidation = false;
   let hitSpike = false;
   let exitIdx = -1;
+  let mfe = 0;
+  let mae = 0;
 
   for (let i = entryIdx + 1; i <= horizonEnd; i++) {
     const px = ticks[i].quote;
+    const signed = ((px - signal.entryPrice) / signal.entryPrice) * 100;
+    const fav = bullish ? signed : -signed;
+    mfe = Math.max(mfe, fav);
+    mae = Math.max(mae, -fav);
 
     if (signal.invalidation != null) {
       const stopped = bullish
@@ -133,6 +140,10 @@ function resolveSpikeHuntPath(
 
   const exit = ticks[exitIdx];
   const ret = pctReturn(signal.bias, signal.entryPrice, exit.quote);
+  const pathStats = {
+    mfePct: Number(mfe.toFixed(5)),
+    maePct: Number(mae.toFixed(5)),
+  };
 
   if (hitInvalidation) {
     return {
@@ -145,6 +156,7 @@ function resolveSpikeHuntPath(
       hitInvalidation: true,
       outcome: "stopout",
       note: "Stopout — invalidation printed before spike/target",
+      ...pathStats,
     };
   }
 
@@ -161,6 +173,7 @@ function resolveSpikeHuntPath(
       note: hitSpike
         ? "Spike printed inside watch horizon"
         : "Hit spike target before invalidation",
+      ...pathStats,
     };
   }
 
@@ -174,6 +187,7 @@ function resolveSpikeHuntPath(
     hitInvalidation: false,
     outcome: "expired",
     note: "No spike/target before watch horizon expired",
+    ...pathStats,
   };
 }
 
@@ -236,6 +250,7 @@ export function bootstrapFromHistory(
       target: Number(target.toFixed(5)),
       stretch: Number(stretch.toFixed(5)),
       invalidation: Number(invalidation.toFixed(5)),
+      regime: buildRegime(analysis),
       createdAt: Date.now(),
       status: "pending",
       outcome: "open",

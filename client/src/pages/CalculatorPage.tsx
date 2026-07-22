@@ -67,6 +67,7 @@ export function CalculatorPage() {
   const [ticksWanted, setTicksWanted] = useState("");
   const [price, setPrice] = useState<number | null>(null);
   const [tickSize, setTickSize] = useState<number | null>(null);
+  const [learnTip, setLearnTip] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,15 +80,33 @@ export function CalculatorPage() {
             const a = data.vol?.analysis;
             setPrice(a?.lastQuote ?? null);
             setTickSize(medianTickSize(a?.recentTicks) ?? FALLBACK_TICK[index]);
+            const vl = data.vol?.learning;
+            const exp = vl?.overallWinRate;
+            const hit = vl?.targetHitRate;
+            setLearnTip(
+              exp != null
+                ? `Vol live WR ~${(exp * 100).toFixed(0)}% · target hit ${hit != null ? `${(hit * 100).toFixed(0)}%` : "—"} (research only)`
+                : null,
+            );
           } else {
             const a = data.symbols?.[index];
             setPrice(a?.lastQuote ?? null);
             setTickSize(medianTickSize(a?.recentTicks) ?? FALLBACK_TICK[index]);
+            const st = data.learning?.live?.bySymbol?.[index]?.byKind?.spike_watch;
+            const exp = st?.decayExpectancyNetPct ?? st?.expectancyNetPct;
+            const wr = st?.decayWinRateAfterCost ?? st?.winRateAfterCost;
+            const n = (st?.wins ?? 0) + (st?.losses ?? 0);
+            setLearnTip(
+              st
+                ? `Spike-hunt live: exp ${exp != null ? `${exp.toFixed(3)}%` : "—"} · WR ${wr != null ? `${(wr * 100).toFixed(0)}%` : "—"} · n=${n}`
+                : null,
+            );
           }
         })
         .catch(() => {
           if (!cancelled) {
             setTickSize(FALLBACK_TICK[index]);
+            setLearnTip(null);
           }
         });
     };
@@ -209,6 +228,7 @@ export function CalculatorPage() {
           Close enough estimate: stake × {DEFAULT_MULTIPLIER} × (tick size ÷
           price). Not exact Deriv payout math — good for sizing intuition.
         </p>
+        {learnTip && <p className="calc-simple-meta learn-tip">{learnTip}</p>}
       </section>
 
       <footer className="foot">

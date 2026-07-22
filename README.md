@@ -59,12 +59,13 @@ Open `/calculator` — pick an index, enter stake (0.1–max), get an approximat
 ### Learning loop
 
 1. Seed: on first history load, bootstrap resolved journal rows from past ticks
-2. Live: when a non-aside setup appears, log it (with cooldown)
-3. Resolve: after the horizon (or on spike), mark win/loss and return %
-4. Cost check: subtract assumed round-trip cost (`COST_PCT_ROUND_TRIP`, default `0.02` = 2 bps)
-5. Calibrate: **live after-cost hit-rates only** blend into confidence (seed is shown separately)
+2. Live: when a gated spike-hunt appears, log it with regime tags (age/RSI/timing/stop)
+3. Resolve: win on spike/target, loss on stopout/expiry; track MFE/MAE
+4. Cost check: subtract assumed round-trip cost (`COST_PCT_ROUND_TRIP`, default `0.02`)
+5. Calibrate: **live decay-weighted expectancy + hit-rate only** (seed never promotes confidence)
 6. Hazard: empirical P(spike within 100/500/1000/2000 ticks | current age)
-7. Kill rule: stand aside when live after-cost WR &lt; 45% after ≥50 decisions (`KILL_MIN_*`)
+7. Kill rule: stand aside on weak after-cost WR **or** negative expectancy after enough samples
+8. Regime insights: compare early/mid/late/overdue expectancy and surface which age band pays
 
 ## Honest reliability notes
 

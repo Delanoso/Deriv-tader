@@ -27,6 +27,7 @@ const IDLE_KILL: KillStatusType = {
   reason: null,
   liveSamples: 0,
   liveWinRateAfterCost: null,
+  liveExpectancyNetPct: null,
   thresholdSamples: 50,
   thresholdWinRateAfterCost: 0.45,
   warning: false,

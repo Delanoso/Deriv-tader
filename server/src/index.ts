@@ -13,6 +13,8 @@ import {
 } from "./learning/evaluator.js";
 import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
+import { buildRegime } from "./learning/regimes.js";
+import { passSpikeEntryGate } from "./learning/entryGate.js";
 import { emptySymbolRecord } from "./symbols.js";
 import type {
   LearningSummary,
@@ -108,29 +110,33 @@ function processSymbol(symbol: SymbolId): void {
   analyses[symbol] = analysis;
 
   const opp = analysis.opportunity;
-  // Journal spike hunts only — quiet drift is not the target.
+  // Journal spike hunts only when entry gate passes — quality over quantity.
   if (
     opp.kind === "spike_watch" &&
     analysis.lastQuote != null &&
     analysis.lastEpoch != null
   ) {
-    journal.maybeRecordLive({
-      symbol,
-      kind: "spike_watch",
-      bias: opp.bias,
-      confidence: opp.calibratedConfidence ?? opp.confidence,
-      entryPrice: analysis.lastQuote,
-      entryEpoch: analysis.lastEpoch,
-      entryTickIndex: Math.max(0, ticks.length - 1),
-      horizonTicks: horizonFor(
-        "spike_watch",
-        analysis.reliability.meanInterSpikeTicks,
-      ),
-      target: analysis.spikePlan?.spikeTarget,
-      stretch: analysis.spikePlan?.stretch,
-      invalidation: analysis.spikePlan?.invalidation,
-    });
-    refreshLearning();
+    const gate = passSpikeEntryGate(analysis);
+    if (gate.allow) {
+      journal.maybeRecordLive({
+        symbol,
+        kind: "spike_watch",
+        bias: opp.bias,
+        confidence: opp.calibratedConfidence ?? opp.confidence,
+        entryPrice: analysis.lastQuote,
+        entryEpoch: analysis.lastEpoch,
+        entryTickIndex: Math.max(0, ticks.length - 1),
+        horizonTicks: horizonFor(
+          "spike_watch",
+          analysis.reliability.meanInterSpikeTicks,
+        ),
+        target: analysis.spikePlan?.spikeTarget,
+        stretch: analysis.spikePlan?.stretch,
+        invalidation: analysis.spikePlan?.invalidation,
+        regime: buildRegime(analysis),
+      });
+      refreshLearning();
+    }
   }
 
   broadcast({ type: "snapshot", data: buildSnapshot() });

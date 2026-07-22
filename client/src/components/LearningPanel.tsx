@@ -30,6 +30,8 @@ export function LearningPanel({ learning, symbol }: Props) {
   const spikeSeed = seedBoard?.byKind.spike_watch;
   const cost = learning.costPctAssumed;
   const calibrated = learning.calibrated[symbol]?.spike_watch;
+  const regimes = learning.regimes?.[symbol] ?? [];
+  const insights = (learning.insights ?? []).filter((i) => i.startsWith(symbol));
 
   const counts = (Object.keys(LABELS) as SymbolId[]).map((id) => {
     const board = learning.live.bySymbol[id]?.byKind.spike_watch;
@@ -38,21 +40,30 @@ export function LearningPanel({ learning, symbol }: Props) {
     return { id, n };
   });
 
+  const exp =
+    spikeLive?.decayExpectancyNetPct ?? spikeLive?.expectancyNetPct ?? null;
+  const decayWr = spikeLive?.decayWinRateAfterCost ?? spikeLive?.winRateAfterCost;
+
   return (
     <section className="learning-panel">
       <div className="learning-head">
         <h3>Spike-hunt scoreboard</h3>
-        <p>Tracking Boom/Crash spikes only · cost {cost.toFixed(3)}% rt</p>
+        <p>
+          Live learning · cost {cost.toFixed(3)}% rt · decay-weighted expectancy
+        </p>
       </div>
 
       <div className="learn-grid">
-        <Stat label="Live spike win rate" value={pct(spikeLive?.winRate ?? null)} />
-        <Stat label="After cost" value={pct(spikeLive?.winRateAfterCost ?? null)} />
+        <Stat label="Decay WR (after cost)" value={pct(decayWr ?? null)} />
         <Stat
-          label="Avg net return"
+          label="Expectancy (net)"
+          value={exp != null ? `${exp.toFixed(3)}%` : "—"}
+        />
+        <Stat
+          label="Avg MFE / MAE"
           value={
-            spikeLive?.avgReturnNetPct != null
-              ? `${spikeLive.avgReturnNetPct.toFixed(3)}%`
+            spikeLive?.avgMfePct != null
+              ? `${spikeLive.avgMfePct.toFixed(3)} / ${spikeLive.avgMaePct?.toFixed(3) ?? "—"}`
               : "—"
           }
         />
@@ -65,13 +76,46 @@ export function LearningPanel({ learning, symbol }: Props) {
       <div className="kind-rows">
         <div className="kind-row">
           <span>Spike hunt</span>
-          <span>{pct(spikeLive?.winRateAfterCost ?? spikeLive?.winRate ?? null)}</span>
+          <span>{pct(decayWr ?? spikeLive?.winRate ?? null)}</span>
           <span>
             n={(spikeLive?.wins ?? 0) + (spikeLive?.losses ?? 0)}
             {calibrated != null ? ` · cal ${(calibrated * 100).toFixed(0)}%` : ""}
+            {spikeLive?.decayEffectiveN
+              ? ` · eff≈${spikeLive.decayEffectiveN.toFixed(0)}`
+              : ""}
           </span>
         </div>
       </div>
+
+      {regimes.length > 0 && (
+        <div className="regime-box">
+          <h4>By age regime (live)</h4>
+          <div className="kind-rows">
+            {regimes.map((r) => {
+              const n = r.stats.winsAfterCost + r.stats.lossesAfterCost;
+              const e = r.stats.decayExpectancyNetPct ?? r.stats.expectancyNetPct;
+              return (
+                <div className="kind-row" key={r.key}>
+                  <span>{r.label}</span>
+                  <span>
+                    {e != null ? `${e.toFixed(3)}%` : pct(r.stats.winRateAfterCost)}
+                  </span>
+                  <span>n={n}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {insights.length > 0 && (
+        <div className="seed-box">
+          <h4>Learning insight</h4>
+          {insights.map((line) => (
+            <p key={line}>{line.replace(`${symbol}: `, "")}</p>
+          ))}
+        </div>
+      )}
 
       <div className="seed-box">
         <h4>Seed spike hunts — not used for confidence</h4>

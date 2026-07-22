@@ -61,8 +61,14 @@ test("kill rule triggers below threshold with enough samples", () => {
       lossesAfterCost: 42,
       winRateAfterCost: 0.3,
       avgReturnNetPct: -0.02,
+      expectancyNetPct: -0.02,
+      avgMfePct: 0.05,
+      avgMaePct: 0.04,
+      decayWinRateAfterCost: 0.28,
+      decayExpectancyNetPct: -0.03,
+      decayEffectiveN: 55,
     },
-    { minSamples: 50, minWinRateAfterCost: 0.45 },
+    { minSamples: 50, minWinRateAfterCost: 0.45, minExpectancyNetPct: 0 },
   );
   assert.equal(killed.killed, true);
   assert.ok(killed.reason);
@@ -82,9 +88,42 @@ test("kill rule waits for sample size", () => {
       lossesAfterCost: 24,
       winRateAfterCost: 0.2,
       avgReturnNetPct: -0.02,
+      expectancyNetPct: -0.02,
+      avgMfePct: null,
+      avgMaePct: null,
+      decayWinRateAfterCost: 0.2,
+      decayExpectancyNetPct: -0.02,
+      decayEffectiveN: 20,
     },
-    { minSamples: 50, minWinRateAfterCost: 0.45 },
+    { minSamples: 50, minWinRateAfterCost: 0.45, minExpectancyNetPct: 0 },
   );
   assert.equal(open.killed, false);
   assert.equal(open.warning, true);
+});
+
+test("kill rule triggers on negative expectancy", () => {
+  const killed = evaluateKillRule(
+    {
+      kind: "spike_watch",
+      total: 60,
+      wins: 32,
+      losses: 28,
+      pending: 0,
+      winRate: 0.53,
+      avgReturnPct: 0.01,
+      winsAfterCost: 30,
+      lossesAfterCost: 30,
+      winRateAfterCost: 0.5,
+      avgReturnNetPct: -0.01,
+      expectancyNetPct: -0.01,
+      avgMfePct: 0.08,
+      avgMaePct: 0.09,
+      decayWinRateAfterCost: 0.48,
+      decayExpectancyNetPct: -0.02,
+      decayEffectiveN: 52,
+    },
+    { minSamples: 50, minWinRateAfterCost: 0.45, minExpectancyNetPct: 0 },
+  );
+  assert.equal(killed.killed, true);
+  assert.match(killed.reason || "", /expectancy/i);
 });
