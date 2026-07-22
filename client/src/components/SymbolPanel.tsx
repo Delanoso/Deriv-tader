@@ -17,6 +17,10 @@ const KIND_LABEL: Record<string, string> = {
 export function SymbolPanel({ analysis, active }: Props) {
   const [backtest, setBacktest] = useState<BacktestResult | null>(null);
   const accent = analysis.symbol === "BOOM1000" ? "#0d9488" : "#2563eb";
+  const displayConf =
+    analysis.opportunity.calibratedConfidence ?? analysis.opportunity.confidence;
+  const confPct = Math.round(displayConf * 100);
+  const rawPct = Math.round(analysis.opportunity.confidence * 100);
 
   useEffect(() => {
     if (!active) return;
@@ -32,10 +36,11 @@ export function SymbolPanel({ analysis, active }: Props) {
     };
   }, [active, analysis.symbol, analysis.updatedAt]);
 
-  const confPct = Math.round(analysis.opportunity.confidence * 100);
-
   return (
-    <section className={`symbol-panel ${active ? "is-active" : ""}`} data-symbol={analysis.symbol}>
+    <section
+      className={`symbol-panel ${active ? "is-active" : ""}`}
+      data-symbol={analysis.symbol}
+    >
       <header className="panel-head">
         <div>
           <p className="eyebrow">{analysis.displayName}</p>
@@ -61,7 +66,8 @@ export function SymbolPanel({ analysis, active }: Props) {
         <div className="signal-top">
           <span className="kind">{KIND_LABEL[analysis.opportunity.kind]}</span>
           <span className="confidence" style={{ ["--p" as string]: `${confPct}%` }}>
-            {confPct}% confidence
+            {confPct}% calibrated
+            {confPct !== rawPct ? ` · raw ${rawPct}%` : ""}
           </span>
         </div>
         <p className="action">{analysis.opportunity.action}</p>
@@ -74,19 +80,13 @@ export function SymbolPanel({ analysis, active }: Props) {
       </div>
 
       <div className="metrics">
-        <Metric
-          label="Ticks since spike"
-          value={fmt(analysis.ticksSinceLastSpike)}
-        />
+        <Metric label="Ticks since spike" value={fmt(analysis.ticksSinceLastSpike)} />
         <Metric
           label="Mean gap"
           value={fmt(analysis.reliability.meanInterSpikeTicks, 0)}
         />
         <Metric label="Spikes sampled" value={String(analysis.reliability.sampleSpikes)} />
-        <Metric
-          label="RSI 14"
-          value={analysis.indicators.rsi14?.toFixed(1) ?? "—"}
-        />
+        <Metric label="RSI 14" value={analysis.indicators.rsi14?.toFixed(1) ?? "—"} />
         <Metric
           label="Momentum 20"
           value={

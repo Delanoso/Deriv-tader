@@ -32,7 +32,10 @@ export interface TradeOpportunity {
   kind: OpportunityKind;
   bias: Bias;
   action: string;
+  /** Raw model confidence before learning calibration. */
   confidence: number;
+  /** Confidence after blending with live journal hit-rates. */
+  calibratedConfidence?: number;
   rationale: string[];
   riskNote: string;
 }
@@ -51,6 +54,60 @@ export interface ReliabilityStats {
   medianInterSpikeTicks: number | null;
   weibullShapeApprox: number | null;
   memorylessNote: string;
+}
+
+export type SignalStatus = "pending" | "win" | "loss" | "expired";
+
+export interface JournalSignal {
+  id: string;
+  symbol: SymbolId;
+  kind: Exclude<OpportunityKind, "stand_aside">;
+  bias: Bias;
+  confidence: number;
+  entryPrice: number;
+  entryEpoch: number;
+  entryTickIndex: number;
+  horizonTicks: number;
+  createdAt: number;
+  status: SignalStatus;
+  resolvedAt?: number;
+  exitPrice?: number;
+  exitEpoch?: number;
+  returnPct?: number;
+  note?: string;
+  source: "live" | "bootstrap";
+}
+
+export interface KindStats {
+  kind: OpportunityKind | "all";
+  total: number;
+  wins: number;
+  losses: number;
+  pending: number;
+  winRate: number | null;
+  avgReturnPct: number | null;
+}
+
+export interface LearningSummary {
+  totalSignals: number;
+  pending: number;
+  resolved: number;
+  overallWinRate: number | null;
+  bySymbol: Record<
+    SymbolId,
+    {
+      overall: KindStats;
+      byKind: Partial<Record<Exclude<OpportunityKind, "stand_aside">, KindStats>>;
+    }
+  >;
+  recent: JournalSignal[];
+  calibrated: Partial<
+    Record<
+      SymbolId,
+      Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>
+    >
+  >;
+  updatedAt: number;
 }
 
 export interface SymbolAnalysis {
@@ -73,5 +130,6 @@ export interface SymbolAnalysis {
 export interface MarketSnapshot {
   connected: boolean;
   symbols: Record<SymbolId, SymbolAnalysis>;
+  learning: LearningSummary;
   disclaimer: string;
 }

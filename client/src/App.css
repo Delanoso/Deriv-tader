@@ -209,8 +209,21 @@ button {
   color: #f5fbfb;
 }
 
+.main-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 960px) {
+  .main-grid {
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+    align-items: start;
+  }
+}
+
 .symbol-panel,
-.loading-panel {
+.loading-panel,
+.learning-panel {
   position: relative;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--line);
@@ -218,6 +231,102 @@ button {
   backdrop-filter: blur(8px);
   padding: 1rem 1rem 1.25rem;
   animation: rise 0.65s ease 0.12s both;
+}
+
+.learning-panel h3,
+.learning-panel h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.learning-head p,
+.muted {
+  color: var(--ink-soft);
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+}
+
+.learn-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+}
+
+.learn-stat {
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.learn-stat span {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+}
+
+.learn-stat strong {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.kind-rows {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.kind-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+  padding: 0.35rem 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.kind-row span:nth-child(2) {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+.recent-signals {
+  margin-top: 1rem;
+}
+
+.recent-signals ul {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.recent-signals li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.45rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.84rem;
+}
+
+.recent-signals em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-size: 0.72rem;
+}
+
+.sig-win em {
+  color: #0f766e;
+}
+
+.sig-loss em {
+  color: #c2410c;
+}
+
+.sig-pending em {
+  color: var(--ink-soft);
 }
 
 .panel-head {

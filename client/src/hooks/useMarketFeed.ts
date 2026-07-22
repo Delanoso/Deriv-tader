@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { MarketSnapshot } from "../types";
+import type { LearningSummary, MarketSnapshot } from "../types";
 
 const empty: MarketSnapshot = {
   connected: false,
@@ -9,6 +9,7 @@ const empty: MarketSnapshot = {
 
 export function useMarketFeed() {
   const [snapshot, setSnapshot] = useState<MarketSnapshot>(empty);
+  const [learning, setLearning] = useState<LearningSummary | null>(null);
   const [status, setStatus] = useState("Connecting…");
   const [live, setLive] = useState(false);
   const retryRef = useRef(0);
@@ -33,6 +34,10 @@ export function useMarketFeed() {
           const msg = JSON.parse(event.data);
           if (msg.type === "snapshot") {
             setSnapshot(msg.data);
+            if (msg.data.learning) setLearning(msg.data.learning);
+          }
+          if (msg.type === "learning") {
+            setLearning(msg.data);
           }
           if (msg.type === "status") {
             setLive(Boolean(msg.data.connected));
@@ -55,7 +60,15 @@ export function useMarketFeed() {
 
     fetch("/api/snapshot")
       .then((r) => r.json())
-      .then((data) => setSnapshot(data))
+      .then((data) => {
+        setSnapshot(data);
+        if (data.learning) setLearning(data.learning);
+      })
+      .catch(() => undefined);
+
+    fetch("/api/learning")
+      .then((r) => r.json())
+      .then((data) => setLearning(data))
       .catch(() => undefined);
 
     connect();
@@ -67,5 +80,5 @@ export function useMarketFeed() {
     };
   }, []);
 
-  return { snapshot, status, live };
+  return { snapshot, learning, status, live };
 }

@@ -1,6 +1,8 @@
 import { atr, buildCandlesFromTicks, ema, momentum, rsi } from "./indicators.js";
+import { blendConfidence } from "./learning/journal.js";
 import { detectSpikes, interSpikeStats } from "./spikeDetector.js";
 import type {
+  OpportunityKind,
   SymbolAnalysis,
   SymbolId,
   Tick,
@@ -14,7 +16,15 @@ const DISPLAY: Record<SymbolId, string> = {
 
 const ADVERTISED_INTERVAL = 1000;
 
-export function analyzeSymbol(symbol: SymbolId, ticks: Tick[]): SymbolAnalysis {
+export type CalibrationMap = Partial<
+  Record<SymbolId, Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>>
+>;
+
+export function analyzeSymbol(
+  symbol: SymbolId,
+  ticks: Tick[],
+  calibration?: CalibrationMap,
+): SymbolAnalysis {
   const candles = buildCandlesFromTicks(ticks, 60);
   const closes = candles.map((c) => c.close);
   const quotes = ticks.map((t) => t.quote);
@@ -32,18 +42,22 @@ export function analyzeSymbol(symbol: SymbolId, ticks: Tick[]): SymbolAnalysis {
     momentum20: momentum(closes, 20),
   };
 
-  const opportunity = scoreOpportunity(symbol, {
-    ticksSinceLastSpike,
-    meanInterSpike: stats.mean,
-    rsi: indicators.rsi14,
-    ema9: indicators.ema9,
-    ema21: indicators.ema21,
-    momentum: indicators.momentum20,
-    justSpiked:
-      lastSpike != null &&
-      ticksSinceLastSpike != null &&
-      ticksSinceLastSpike <= 25,
-  });
+  const opportunity = scoreOpportunity(
+    symbol,
+    {
+      ticksSinceLastSpike,
+      meanInterSpike: stats.mean,
+      rsi: indicators.rsi14,
+      ema9: indicators.ema9,
+      ema21: indicators.ema21,
+      momentum: indicators.momentum20,
+      justSpiked:
+        lastSpike != null &&
+        ticksSinceLastSpike != null &&
+        ticksSinceLastSpike <= 25,
+    },
+    calibration?.[symbol],
+  );
 
   return {
     symbol,
@@ -83,6 +97,7 @@ function scoreOpportunity(
     momentum: number | null;
     justSpiked: boolean;
   },
+  learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
 ): TradeOpportunity {
   const isBoom = symbol === "BOOM1000";
   // Between spikes: Boom drifts down, Crash drifts up.
@@ -187,11 +202,24 @@ function scoreOpportunity(
     rationale.push("Not enough confirmed spikes in the loaded window yet.");
   }
 
+  const raw = Number(confidence.toFixed(2));
+  let calibrated = raw;
+  if (kind !== "stand_aside") {
+    const learned = learnedRates?.[kind];
+    if (learned != null) {
+      calibrated = blendConfidence(raw, learned, true);
+      rationale.push(
+        `Learning blend: journal rate ~${(learned * 100).toFixed(0)}% → calibrated ${Math.round(calibrated * 100)}%.`,
+      );
+    }
+  }
+
   return {
     kind,
     bias,
     action,
-    confidence: Number(confidence.toFixed(2)),
+    confidence: raw,
+    calibratedConfidence: calibrated,
     rationale,
     riskNote,
   };

@@ -10,3 +10,5 @@ coverage/
 client/dist/
 server/dist/
 .vite/
+server/data/signal-journal.json
+server/data/*.tmp

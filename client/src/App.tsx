@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMarketFeed } from "./hooks/useMarketFeed";
 import { SymbolPanel } from "./components/SymbolPanel";
+import { LearningPanel } from "./components/LearningPanel";
 import type { SymbolId } from "./types";
 import "./App.css";
 
@@ -10,7 +11,7 @@ const TABS: { id: SymbolId; label: string }[] = [
 ];
 
 export default function App() {
-  const { snapshot, status, live } = useMarketFeed();
+  const { snapshot, learning, status, live } = useMarketFeed();
   const [tab, setTab] = useState<SymbolId>("BOOM1000");
 
   const active = snapshot.symbols[tab];
@@ -30,34 +31,41 @@ export default function App() {
         </div>
         <h1>Live feedback for Boom 1000 & Crash 1000</h1>
         <p className="lede">
-          Streams Deriv ticks, marks spikes, and scores drift vs spike-watch setups —
-          with confidence capped by how memoryless the gaps look.
+          Streams Deriv ticks, marks spikes, scores setups, then journals outcomes so
+          confidence can learn from what actually happened.
         </p>
         <div className="cta-row">
           <span className={`status-pill ${live ? "live" : "off"}`}>{status}</span>
           <span className="status-pill soft">
             {bothReady ? "Both markets loaded" : "Warming tick history…"}
           </span>
+          {learning && (
+            <span className="status-pill soft">
+              Journal {learning.resolved} resolved / {learning.pending} open
+            </span>
+          )}
         </div>
       </header>
 
       <nav className="tabs" aria-label="Markets">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={tab === t.id ? "active" : ""}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-            {snapshot.symbols[t.id]?.opportunity && (
-              <em>{Math.round(snapshot.symbols[t.id]!.opportunity.confidence * 100)}%</em>
-            )}
-          </button>
-        ))}
+        {TABS.map((t) => {
+          const opp = snapshot.symbols[t.id]?.opportunity;
+          const conf = opp?.calibratedConfidence ?? opp?.confidence;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              className={tab === t.id ? "active" : ""}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+              {conf != null && <em>{Math.round(conf * 100)}%</em>}
+            </button>
+          );
+        })}
       </nav>
 
-      <main>
+      <main className="main-grid">
         {active ? (
           <SymbolPanel analysis={active} active />
         ) : (
@@ -66,6 +74,7 @@ export default function App() {
             <p>Pulling Deriv history for {tab}…</p>
           </div>
         )}
+        <LearningPanel learning={learning} symbol={tab} />
       </main>
 
       <footer className="foot">

@@ -38,13 +38,23 @@ Optional: set `PORT` for the server (default `8787`).
 | Indicators | RSI(14), EMA(9/21), ATR(14), momentum — used as confluence, not gospel |
 | Reliability | Mean/median inter-spike gap + rough Weibull shape; flags memoryless regimes |
 | Paper check | Simple post-spike drift hold backtest on the in-memory tick window |
+| Learning loop | Journals live signals, resolves win/loss after a horizon, blends hit-rates into calibrated confidence |
 
 ## API
 
 - `GET /api/health` — connection status
-- `GET /api/snapshot` — full analysis payload
+- `GET /api/snapshot` — full analysis payload (+ learning summary)
+- `GET /api/learning` — journal hit-rates and calibrated confidences
+- `GET /api/learning/signals` — recent journal rows (`?symbol=` / `?status=`)
 - `GET /api/backtest/:symbol` — `BOOM1000` or `CRASH1000`
-- `WS /ws` — live `snapshot` + `status` events
+- `WS /ws` — live `snapshot`, `learning`, + `status` events
+
+### Learning loop
+
+1. Seed: on first history load, bootstrap resolved journal rows from past ticks
+2. Live: when a non-aside setup appears, log it (with cooldown)
+3. Resolve: after the horizon (or on spike), mark win/loss and return %
+4. Calibrate: once a setup has enough decisions, blend empirical win-rate into confidence
 
 ## Honest reliability notes
 
