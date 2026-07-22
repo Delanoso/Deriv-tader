@@ -6,6 +6,7 @@ import {
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type CandlestickData,
+  type LogicalRange,
   type Time,
   CandlestickSeries,
   type IPriceLine,
@@ -61,12 +62,10 @@ export function PriceChart({
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const markersApiRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  /** Authoritative follow flag — updated synchronously on click. */
   const followRef = useRef(true);
+  const savedRangeRef = useRef<LogicalRange | null>(null);
   const [follow, setFollow] = useState(true);
-
-  useEffect(() => {
-    followRef.current = follow;
-  }, [follow]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -87,6 +86,7 @@ export function PriceChart({
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 8,
+        shiftVisibleRangeOnNewBar: followRef.current,
       },
       crosshair: {
         vertLine: { color: "rgba(15,42,58,0.25)", width: 1, style: 2 },
@@ -117,12 +117,18 @@ export function PriceChart({
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
-    // One markers plugin for the life of the series — updates use setMarkers().
     markersApiRef.current = createSeriesMarkers(candleSeries, []);
 
+    // Remember where the user left the viewport while in free-move mode.
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (!followRef.current && range) {
+        savedRangeRef.current = range;
+      }
+    });
+
     const observer = new ResizeObserver(() => {
-      if (!containerRef.current) return;
-      chart.applyOptions({ width: containerRef.current.clientWidth });
+      if (!containerRef.current || !chartRef.current) return;
+      chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
     });
     observer.observe(containerRef.current);
 
@@ -142,9 +148,14 @@ export function PriceChart({
       return;
     }
 
-    const preserved = followRef.current
-      ? null
-      : chartRef.current.timeScale().getVisibleLogicalRange();
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+
+    // Capture range BEFORE mutating data (setData can clear it).
+    if (!followRef.current) {
+      const current = chart.timeScale().getVisibleLogicalRange();
+      if (current) savedRangeRef.current = current;
+    }
 
     const last = candles[candles.length - 1];
     const lastClose = last?.close ?? 0;
@@ -180,12 +191,11 @@ export function PriceChart({
       }
     }
 
-    candleSeriesRef.current.setData(data);
+    series.setData(data);
 
     const histMarkers: Marker[] = [];
     for (const s of spikes) {
       const bucket = Math.floor(s.epoch / step) * step;
-      // Only mark candles that actually contain this spike tick — never nearest-neighbor.
       if (!byEpoch.has(bucket)) continue;
       histMarkers.push({
         time: bucket as Time,
@@ -199,9 +209,10 @@ export function PriceChart({
     const forecastMapped: Marker[] = forecastMarkers
       .map((f) => {
         const bucket = Math.floor(f.epoch / step) * step;
-        // Forecast may sit on padded future bars; allow those times too.
         const onHistory = byEpoch.has(bucket);
-        const onFuture = Boolean(last && bucket > last.epoch && bucket <= maxFutureEpoch + step);
+        const onFuture = Boolean(
+          last && bucket > last.epoch && bucket <= maxFutureEpoch + step,
+        );
         if (!onHistory && !onFuture) return null;
         return {
           time: bucket as Time,
@@ -223,10 +234,10 @@ export function PriceChart({
     );
 
     for (const line of priceLinesRef.current) {
-      candleSeriesRef.current.removePriceLine(line);
+      series.removePriceLine(line);
     }
     priceLinesRef.current = levels.map((level) =>
-      candleSeriesRef.current!.createPriceLine({
+      series.createPriceLine({
         price: level.price,
         color: level.color,
         lineWidth: 2,
@@ -236,19 +247,37 @@ export function PriceChart({
       }),
     );
 
-    if (followRef.current) {
-      chartRef.current.timeScale().scrollToRealTime();
-    } else if (preserved) {
-      chartRef.current.timeScale().setVisibleLogicalRange(preserved);
-    }
+    // Restore viewport after setData. rAF waits until LWC finishes internal layout.
+    const applyView = () => {
+      if (!chartRef.current) return;
+      if (followRef.current) {
+        chartRef.current.timeScale().scrollToRealTime();
+      } else if (savedRangeRef.current) {
+        chartRef.current.timeScale().setVisibleLogicalRange(savedRangeRef.current);
+      }
+    };
+    requestAnimationFrame(applyView);
   }, [candles, spikes, levels, forecastMarkers, candleStepSec, spikeDirection]);
 
-  useEffect(() => {
-    if (!chartRef.current) return;
-    if (follow) {
-      chartRef.current.timeScale().scrollToRealTime();
+  function toggleFollow() {
+    const next = !followRef.current;
+    followRef.current = next; // sync before any incoming WS paint
+    setFollow(next);
+
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    chart.applyOptions({
+      timeScale: { shiftVisibleRangeOnNewBar: next },
+    });
+
+    if (next) {
+      chart.timeScale().scrollToRealTime();
+    } else {
+      const range = chart.timeScale().getVisibleLogicalRange();
+      if (range) savedRangeRef.current = range;
     }
-  }, [follow]);
+  }
 
   return (
     <div className="chart-wrap">
@@ -256,7 +285,7 @@ export function PriceChart({
         <button
           type="button"
           className={follow ? "chart-lock active" : "chart-lock"}
-          onClick={() => setFollow((v) => !v)}
+          onClick={toggleFollow}
           title={
             follow
               ? "Chart is locked to the newest candles — click to pan freely"
@@ -267,8 +296,8 @@ export function PriceChart({
         </button>
         <span className="chart-hint">
           {follow
-            ? "Release to pan / zoom without snap-back"
-            : "Lock to jump back to the newest candles"}
+            ? "Click to release — pan / zoom without snap-back"
+            : "Unlocked — pan freely. Click to lock to newest candles"}
         </span>
       </div>
       <div className="chart-shell" ref={containerRef} />
