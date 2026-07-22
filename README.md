@@ -54,7 +54,8 @@ Optional: set `PORT` for the server (default `8787`).
 1. Seed: on first history load, bootstrap resolved journal rows from past ticks
 2. Live: when a non-aside setup appears, log it (with cooldown)
 3. Resolve: after the horizon (or on spike), mark win/loss and return %
-4. Calibrate: once a setup has enough decisions, blend empirical win-rate into confidence
+4. Cost check: subtract assumed round-trip cost (`COST_PCT_ROUND_TRIP`, default `0.02` = 2 bps)
+5. Calibrate: **live after-cost hit-rates only** blend into confidence (seed is shown separately)
 
 ## Honest reliability notes
 

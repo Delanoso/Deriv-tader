@@ -291,8 +291,26 @@ button {
   color: var(--ink);
 }
 
-.recent-signals {
+.seed-box {
   margin-top: 1rem;
+  padding: 0.7rem 0.75rem;
+  background: rgba(15, 42, 58, 0.04);
+  border-left: 3px solid rgba(15, 42, 58, 0.25);
+}
+
+.seed-box h4 {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.seed-box p {
+  margin: 0.35rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  color: var(--ink-soft);
 }
 
 .recent-signals ul {

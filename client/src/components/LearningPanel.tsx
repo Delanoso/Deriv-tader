@@ -21,48 +21,67 @@ export function LearningPanel({ learning, symbol }: Props) {
     );
   }
 
-  const sym = learning.bySymbol[symbol];
-  const overall = sym?.overall;
-  const kinds = sym?.byKind ?? {};
+  const liveBoard = learning.live.bySymbol[symbol];
+  const seedBoard = learning.seed.bySymbol[symbol];
+  const liveOverall = liveBoard?.overall;
+  const kinds = liveBoard?.byKind ?? {};
+  const cost = learning.costPctAssumed;
 
   return (
     <section className="learning-panel">
       <div className="learning-head">
-        <h3>Learning loop</h3>
+        <h3>Live scoreboard</h3>
         <p>
-          {learning.resolved} resolved · {learning.pending} pending · overall{" "}
-          {pct(learning.overallWinRate)}
+          {learning.live.resolved} live resolved · {learning.live.pending} open · cost{" "}
+          {cost.toFixed(3)}% rt
         </p>
       </div>
 
       <div className="learn-grid">
-        <Stat label={`${symbol} win rate`} value={pct(overall?.winRate ?? null)} />
+        <Stat label="Live win rate" value={pct(liveOverall?.winRate ?? null)} />
         <Stat
-          label="Avg return"
+          label="After cost"
+          value={pct(liveOverall?.winRateAfterCost ?? null)}
+        />
+        <Stat
+          label="Avg net return"
           value={
-            overall?.avgReturnPct != null
-              ? `${overall.avgReturnPct.toFixed(3)}%`
+            liveOverall?.avgReturnNetPct != null
+              ? `${liveOverall.avgReturnNetPct.toFixed(3)}%`
               : "—"
           }
         />
-        <Stat label="Wins / losses" value={`${overall?.wins ?? 0} / ${overall?.losses ?? 0}`} />
+        <Stat
+          label="Wins / losses"
+          value={`${liveOverall?.wins ?? 0} / ${liveOverall?.losses ?? 0}`}
+        />
       </div>
 
       <div className="kind-rows">
         {(["drift_follow", "spike_watch", "post_spike"] as const).map((kind) => {
           const st = kinds[kind];
           const calibrated = learning.calibrated[symbol]?.[kind];
+          const n = (st?.wins ?? 0) + (st?.losses ?? 0);
           return (
             <div className="kind-row" key={kind}>
               <span>{KIND_LABEL[kind]}</span>
-              <span>{pct(st?.winRate ?? null)}</span>
+              <span>{pct(st?.winRateAfterCost ?? st?.winRate ?? null)}</span>
               <span>
-                n={(st?.wins ?? 0) + (st?.losses ?? 0)}
+                n={n}
                 {calibrated != null ? ` · cal ${(calibrated * 100).toFixed(0)}%` : ""}
               </span>
             </div>
           );
         })}
+      </div>
+
+      <div className="seed-box">
+        <h4>Seed (bootstrap) — not used for confidence</h4>
+        <p>
+          {pct(seedBoard?.overallWinRate ?? null)} gross ·{" "}
+          {pct(seedBoard?.overallWinRateAfterCost ?? null)} after cost · n=
+          {seedBoard?.resolved ?? 0}
+        </p>
       </div>
 
       <div className="recent-signals">
@@ -76,8 +95,13 @@ export function LearningPanel({ learning, symbol }: Props) {
                 <strong>{KIND_LABEL[s.kind] ?? s.kind}</strong>
                 <em>{s.status}</em>
                 <span>
-                  {s.returnPct != null ? `${s.returnPct.toFixed(3)}%` : "…"}
-                  {s.source === "bootstrap" ? " · seed" : ""}
+                  {s.returnNetPct != null
+                    ? `net ${s.returnNetPct.toFixed(3)}%`
+                    : s.returnPct != null
+                      ? `${s.returnPct.toFixed(3)}%`
+                      : "…"}
+                  {s.source === "bootstrap" ? " · seed" : " · live"}
+                  {s.winAfterCost === false && s.status === "win" ? " · cost wipe" : ""}
                 </span>
               </li>
             ))}

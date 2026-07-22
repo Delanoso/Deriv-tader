@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { DEFAULT_COST_PCT, netReturnPct, withCostFields } from "./costs.js";
 import { blendConfidence } from "./journal.js";
 
 test("blendConfidence pulls toward learned rate", () => {
@@ -15,9 +13,9 @@ test("blendConfidence ignores learned when samples unmet", () => {
   assert.equal(blendConfidence(0.4, 0.9, false), 0.4);
 });
 
-// Keep a tiny filesystem-free sanity check that tmp dirs work for future expansion
-test("temp data dir available", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "spikescope-"));
-  assert.ok(dir.includes("spikescope-"));
-  rmSync(dir, { recursive: true, force: true });
+test("netReturnPct subtracts round-trip cost", () => {
+  assert.equal(netReturnPct(0.05, 0.02), 0.03);
+  assert.equal(withCostFields(0.01, 0.02).winAfterCost, false);
+  assert.equal(withCostFields(0.05, 0.02).winAfterCost, true);
+  assert.ok(DEFAULT_COST_PCT >= 0);
 });

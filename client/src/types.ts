@@ -67,6 +67,9 @@ export interface JournalSignal {
   createdAt: number;
   status: SignalStatus;
   returnPct?: number;
+  returnNetPct?: number;
+  winAfterCost?: boolean;
+  costPctAssumed?: number;
   note?: string;
   source: "live" | "bootstrap";
 }
@@ -79,6 +82,19 @@ export interface KindStats {
   pending: number;
   winRate: number | null;
   avgReturnPct: number | null;
+  winsAfterCost: number;
+  lossesAfterCost: number;
+  winRateAfterCost: number | null;
+  avgReturnNetPct: number | null;
+}
+
+export interface Scoreboard {
+  overall: KindStats;
+  byKind: Partial<Record<Exclude<OpportunityKind, "stand_aside">, KindStats>>;
+  resolved: number;
+  pending: number;
+  overallWinRate: number | null;
+  overallWinRateAfterCost: number | null;
 }
 
 export interface LearningSummary {
@@ -86,6 +102,22 @@ export interface LearningSummary {
   pending: number;
   resolved: number;
   overallWinRate: number | null;
+  costPctAssumed: number;
+  live: {
+    overall: KindStats;
+    bySymbol: Record<SymbolId, Scoreboard>;
+    resolved: number;
+    pending: number;
+    overallWinRate: number | null;
+    overallWinRateAfterCost: number | null;
+  };
+  seed: {
+    overall: KindStats;
+    bySymbol: Record<SymbolId, Scoreboard>;
+    resolved: number;
+    overallWinRate: number | null;
+    overallWinRateAfterCost: number | null;
+  };
   bySymbol: Record<
     SymbolId,
     {

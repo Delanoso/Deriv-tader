@@ -41,7 +41,10 @@ export default function App() {
           </span>
           {learning && (
             <span className="status-pill soft">
-              Journal {learning.resolved} resolved / {learning.pending} open
+              Live {learning.live?.resolved ?? 0} resolved
+              {learning.live?.overallWinRateAfterCost != null
+                ? ` · ${Math.round(learning.live.overallWinRateAfterCost * 100)}% after cost`
+                : ""}
             </span>
           )}
         </div>

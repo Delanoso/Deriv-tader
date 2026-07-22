@@ -73,7 +73,12 @@ export interface JournalSignal {
   resolvedAt?: number;
   exitPrice?: number;
   exitEpoch?: number;
+  /** Gross directional return % before costs. */
   returnPct?: number;
+  /** Net return % after assumed round-trip cost. */
+  returnNetPct?: number;
+  winAfterCost?: boolean;
+  costPctAssumed?: number;
   note?: string;
   source: "live" | "bootstrap";
 }
@@ -86,6 +91,20 @@ export interface KindStats {
   pending: number;
   winRate: number | null;
   avgReturnPct: number | null;
+  /** Wins counted only when net return after cost > 0. */
+  winsAfterCost: number;
+  lossesAfterCost: number;
+  winRateAfterCost: number | null;
+  avgReturnNetPct: number | null;
+}
+
+export interface Scoreboard {
+  overall: KindStats;
+  byKind: Partial<Record<Exclude<OpportunityKind, "stand_aside">, KindStats>>;
+  resolved: number;
+  pending: number;
+  overallWinRate: number | null;
+  overallWinRateAfterCost: number | null;
 }
 
 export interface LearningSummary {
@@ -93,6 +112,25 @@ export interface LearningSummary {
   pending: number;
   resolved: number;
   overallWinRate: number | null;
+  /** Assumed round-trip cost used for net metrics (% points). */
+  costPctAssumed: number;
+  /** Honest live-only scoreboard (excludes bootstrap seed). */
+  live: {
+    overall: KindStats;
+    bySymbol: Record<SymbolId, Scoreboard>;
+    resolved: number;
+    pending: number;
+    overallWinRate: number | null;
+    overallWinRateAfterCost: number | null;
+  };
+  /** Bootstrap/seed scoreboard — useful context, not for confidence. */
+  seed: {
+    overall: KindStats;
+    bySymbol: Record<SymbolId, Scoreboard>;
+    resolved: number;
+    overallWinRate: number | null;
+    overallWinRateAfterCost: number | null;
+  };
   bySymbol: Record<
     SymbolId,
     {
@@ -101,6 +139,7 @@ export interface LearningSummary {
     }
   >;
   recent: JournalSignal[];
+  /** Calibrated from LIVE resolved samples only. */
   calibrated: Partial<
     Record<
       SymbolId,
