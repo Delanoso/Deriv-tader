@@ -189,40 +189,53 @@ export function bootstrapFromHistory(
   const existing = journal
     .getSignals()
     .filter((s) => s.symbol === symbol && s.source === "bootstrap").length;
-  if (existing >= 20) return 0;
+  if (existing >= 12) return 0;
   if (ticks.length < 800) return 0;
 
   const step = 60;
   const created: JournalSignal[] = [];
-  let lastKind: string | null = null;
+  let lastEntryIdx = -9999;
 
   for (let i = 400; i < ticks.length - 80 && created.length < maxSignals; i += step) {
     const window = ticks.slice(0, i + 1);
     const analysis = analyzeSymbol(symbol, window);
     const opp = analysis.opportunity;
-    if (opp.kind === "stand_aside") continue;
-    // Spike-hunt only — skip legacy drift/post-spike seeds.
     if (opp.kind !== "spike_watch") continue;
-    if (opp.kind === lastKind) continue;
-    lastKind = opp.kind;
+    // Space seed trades so the book is readable, not one-per-bar spam.
+    if (i - lastEntryIdx < 180) continue;
+    lastEntryIdx = i;
 
-    const horizon = DEFAULT_HORIZON[opp.kind];
+    const horizon = horizonFor("spike_watch", analysis.reliability.meanInterSpikeTicks);
     const entryIdx = window.length - 1;
     const exitHorizon = Math.min(ticks.length - 1, entryIdx + horizon);
     const plan = analysis.spikePlan;
+    const entryPx = window[entryIdx].quote;
+    const isBoom = symbol.startsWith("BOOM");
+    const atr = analysis.indicators.atr14;
+    const fallbackMove = atr != null && atr > 0 ? atr : entryPx * 0.002;
+    const target =
+      plan?.spikeTarget ??
+      (isBoom ? entryPx + fallbackMove * 1.5 : entryPx - fallbackMove * 1.5);
+    const stretch =
+      plan?.stretch ??
+      (isBoom ? entryPx + fallbackMove * 2.5 : entryPx - fallbackMove * 2.5);
+    const invalidation =
+      plan?.invalidation ??
+      (isBoom ? entryPx - fallbackMove : entryPx + fallbackMove);
+
     const draft: JournalSignal = {
       id: `boot-${symbol}-${window[entryIdx].epoch}-${created.length}`,
       symbol,
       kind: opp.kind,
       bias: opp.bias,
       confidence: opp.confidence,
-      entryPrice: window[entryIdx].quote,
+      entryPrice: entryPx,
       entryEpoch: window[entryIdx].epoch,
       entryTickIndex: entryIdx,
       horizonTicks: horizon,
-      target: plan?.spikeTarget,
-      stretch: plan?.stretch,
-      invalidation: plan?.invalidation,
+      target: Number(target.toFixed(5)),
+      stretch: Number(stretch.toFixed(5)),
+      invalidation: Number(invalidation.toFixed(5)),
       createdAt: Date.now(),
       status: "pending",
       outcome: "open",
