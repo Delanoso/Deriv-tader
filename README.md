@@ -54,7 +54,7 @@ Optional: set `PORT` for the server (default `8787`).
 
 ### Position calculator
 
-Open `/calculator` — pick an index, enter stake (0.1–max), get an approximate **$ per tick**. Optionally enter tick count for a total.
+Open `/calculator` — Deriv **Multipliers** estimate: stake × multiplier × (Δprice ÷ entry). Pick index, stake, multiplier, and points of move. Shows $ per point, $ for N points, $ per 1% move, and max loss (= stake). Not MT5 lot tick-value math.
 
 ### Learning loop
 
