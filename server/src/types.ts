@@ -74,6 +74,23 @@ export interface SpikeForecast {
   timingNote: string;
 }
 
+/** Chart-facing projection for the next spike hunt (price + timing). */
+export interface SpikePlan {
+  /** Expected spike print level (Boom up / Crash down). */
+  spikeTarget: number;
+  /** Stretch / larger spike magnitude level. */
+  stretch: number;
+  /** Hunt invalidates if price prints here first. */
+  invalidation: number;
+  /** Epoch where the median-gap ETA lands (may be in the future). */
+  expectedEpoch: number | null;
+  /** Ticks remaining until median-gap ETA (0 if overdue). */
+  ticksToEta: number | null;
+  expectedMovePct: number;
+  method: string;
+  active: boolean;
+}
+
 export interface KillStatus {
   killed: boolean;
   reason: string | null;
@@ -207,6 +224,8 @@ export interface SymbolAnalysis {
   reliability: ReliabilityStats;
   forecast: SpikeForecast;
   kill: KillStatus;
+  /** Next-spike price/time markers for the chart. */
+  spikePlan: SpikePlan | null;
   candles: Candle[];
   recentTicks: Tick[];
   updatedAt: number;

@@ -32,6 +32,8 @@ export interface VolTargets {
   expectedMovePct: number;
   /** Method used for levels. */
   method: string;
+  /** Epoch for horizon ETA marker on the chart. */
+  expectedEpoch?: number | null;
 }
 
 export interface VolPrediction {

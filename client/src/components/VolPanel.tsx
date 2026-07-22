@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { VolAnalysis } from "../types";
-import { PriceChart } from "./PriceChart";
+import { PriceChart, type ChartLevel, type ForecastMarker } from "./PriceChart";
 
 interface Props {
   analysis: VolAnalysis;
@@ -13,7 +13,7 @@ export function VolPanel({ analysis }: Props) {
   const rawPct = Math.round(pred.confidence * 100);
   const accent = pred.bias === "down" ? "#2563eb" : "#0d9488";
 
-  const levels = useMemo(() => {
+  const levels = useMemo((): ChartLevel[] => {
     if (pred.bias === "neutral") return [];
     return [
       { price: pred.targets.target, color: "#0d9488", title: "Target" },
@@ -29,6 +29,36 @@ export function VolPanel({ analysis }: Props) {
     pred.targets.target,
     pred.targets.stretch,
     pred.targets.invalidation,
+  ]);
+
+  const forecastMarkers = useMemo((): ForecastMarker[] => {
+    if (pred.bias === "neutral") return [];
+    const markers: ForecastMarker[] = [];
+    const nowEpoch = analysis.lastEpoch ?? analysis.candles.at(-1)?.epoch;
+    if (nowEpoch != null) {
+      markers.push({
+        epoch: nowEpoch,
+        label: "invalidate",
+        color: "#ff6b4a",
+        position: pred.bias === "up" ? "aboveBar" : "belowBar",
+        shape: "circle",
+      });
+    }
+    if (pred.targets.expectedEpoch != null) {
+      markers.push({
+        epoch: pred.targets.expectedEpoch,
+        label: pred.bias === "up" ? "target↑" : "target↓",
+        color: "#0d9488",
+        position: pred.bias === "up" ? "belowBar" : "aboveBar",
+        shape: pred.bias === "up" ? "arrowUp" : "arrowDown",
+      });
+    }
+    return markers;
+  }, [
+    pred.bias,
+    pred.targets.expectedEpoch,
+    analysis.lastEpoch,
+    analysis.candles,
   ]);
 
   return (
@@ -48,7 +78,13 @@ export function VolPanel({ analysis }: Props) {
         </div>
       </header>
 
-      <PriceChart candles={analysis.candles} spikes={[]} accent={accent} levels={levels} />
+      <PriceChart
+        candles={analysis.candles}
+        spikes={[]}
+        accent={accent}
+        levels={levels}
+        forecastMarkers={forecastMarkers}
+      />
 
       <div className="signal-block">
         <div className="signal-top">

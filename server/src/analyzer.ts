@@ -9,6 +9,7 @@ import type {
   KillStatus as KillStatusType,
   OpportunityKind,
   SpikeForecast,
+  SpikePlan,
   SymbolAnalysis,
   SymbolId,
   Tick,
@@ -70,11 +71,26 @@ export function analyzeSymbol(
     calibration?.[symbol],
   );
 
+  const lastQuote = quotes.length ? quotes[quotes.length - 1] : null;
+  const lastEpoch = ticks.length ? ticks[ticks.length - 1].epoch : null;
+  const spikePlan = buildSpikePlan({
+    symbol,
+    lastQuote,
+    lastEpoch,
+    ticks,
+    spikes,
+    atr14: indicators.atr14,
+    ticksSinceLastSpike,
+    meanGap: stats.mean,
+    medianGap: stats.median,
+    opportunityKind: opportunity.kind,
+  });
+
   return {
     symbol,
     displayName: SYMBOL_DISPLAY[symbol],
-    lastQuote: quotes.length ? quotes[quotes.length - 1] : null,
-    lastEpoch: ticks.length ? ticks[ticks.length - 1].epoch : null,
+    lastQuote,
+    lastEpoch,
     ticksCollected: ticks.length,
     ticksSinceLastSpike,
     lastSpike,
@@ -90,10 +106,74 @@ export function analyzeSymbol(
     },
     forecast,
     kill,
+    spikePlan,
     candles: candles.slice(-180),
     recentTicks: ticks.slice(-400),
     updatedAt: Date.now(),
   };
+}
+
+function buildSpikePlan(ctx: {
+  symbol: SymbolId;
+  lastQuote: number | null;
+  lastEpoch: number | null;
+  ticks: Tick[];
+  spikes: { magnitude: number }[];
+  atr14: number | null;
+  ticksSinceLastSpike: number | null;
+  meanGap: number | null;
+  medianGap: number | null;
+  opportunityKind: OpportunityKind;
+}): SpikePlan | null {
+  if (ctx.lastQuote == null || ctx.lastEpoch == null) return null;
+  if (ctx.spikes.length < 2) return null;
+
+  const isBoom = isBoomSymbol(ctx.symbol);
+  const mags = ctx.spikes
+    .map((s) => Math.abs(s.magnitude))
+    .filter((m) => m > 0)
+    .sort((a, b) => a - b);
+  if (!mags.length) return null;
+
+  const medMag = mags[Math.floor(mags.length * 0.5)] ?? mags[0];
+  const stretchMag = mags[Math.floor(mags.length * 0.75)] ?? medMag;
+  const price = ctx.lastQuote;
+  const atr = ctx.atr14 != null && ctx.atr14 > 0 ? ctx.atr14 : price * medMag;
+
+  const spikeTarget = isBoom ? price * (1 + medMag) : price * (1 - medMag);
+  const stretch = isBoom ? price * (1 + stretchMag) : price * (1 - stretchMag);
+  const invalidation = isBoom
+    ? Math.min(price - atr, price * (1 - medMag * 0.35))
+    : Math.max(price + atr, price * (1 + medMag * 0.35));
+
+  const gap = ctx.medianGap ?? ctx.meanGap;
+  let ticksToEta: number | null = null;
+  let expectedEpoch: number | null = null;
+  if (gap != null && ctx.ticksSinceLastSpike != null) {
+    ticksToEta = Math.max(0, Math.round(gap - ctx.ticksSinceLastSpike));
+    const dt = estimateTickSeconds(ctx.ticks);
+    expectedEpoch = ctx.lastEpoch + Math.round(ticksToEta * dt);
+  }
+
+  return {
+    spikeTarget: Number(spikeTarget.toFixed(5)),
+    stretch: Number(stretch.toFixed(5)),
+    invalidation: Number(invalidation.toFixed(5)),
+    expectedEpoch,
+    ticksToEta,
+    expectedMovePct: Number((Math.abs(spikeTarget - price) / price * 100).toFixed(4)),
+    method: "Median spike magnitude + ATR invalidation · median-gap ETA",
+    active: ctx.opportunityKind === "spike_watch",
+  };
+}
+
+function estimateTickSeconds(ticks: Tick[]): number {
+  if (ticks.length < 3) return 1;
+  const a = ticks[ticks.length - 1].epoch;
+  const b = ticks[ticks.length - 11]?.epoch ?? ticks[0].epoch;
+  const n = Math.min(10, ticks.length - 1);
+  const dt = (a - b) / n;
+  return dt > 0 && dt < 10 ? dt : 1;
 }
 
 function scoreOpportunity(

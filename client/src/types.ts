@@ -72,6 +72,17 @@ export interface SpikeForecast {
   timingNote: string;
 }
 
+export interface SpikePlan {
+  spikeTarget: number;
+  stretch: number;
+  invalidation: number;
+  expectedEpoch: number | null;
+  ticksToEta: number | null;
+  expectedMovePct: number;
+  method: string;
+  active: boolean;
+}
+
 export interface KillStatus {
   killed: boolean;
   reason: string | null;
@@ -193,6 +204,7 @@ export interface SymbolAnalysis {
   reliability: ReliabilityStats;
   forecast?: SpikeForecast;
   kill?: KillStatus;
+  spikePlan?: SpikePlan | null;
   candles: Candle[];
   recentTicks: Tick[];
   updatedAt: number;
@@ -225,6 +237,8 @@ export interface VolTargets {
   invalidation: number;
   expectedMovePct: number;
   method: string;
+  /** Epoch for horizon ETA marker on the chart. */
+  expectedEpoch?: number | null;
 }
 
 export interface VolPrediction {

@@ -40,6 +40,7 @@ export function analyzeVol(
     mom,
     swingHigh,
     swingLow,
+    lastEpoch: last?.epoch ?? null,
     calibrated,
   });
 
@@ -74,6 +75,7 @@ function scoreVolDirection(ctx: {
   mom: number | null;
   swingHigh: number | null;
   swingLow: number | null;
+  lastEpoch: number | null;
   calibrated?: Partial<Record<"up" | "down", number>>;
 }): VolPrediction {
   const rationale: string[] = [];
@@ -91,6 +93,7 @@ function scoreVolDirection(ctx: {
         invalidation: 0,
         expectedMovePct: 0,
         method: "n/a",
+        expectedEpoch: null,
       },
       rationale: ["Need more candles/ATR before projecting direction and range."],
       riskNote: "Volatility indices can reverse quickly — wait for structure.",
@@ -210,6 +213,8 @@ function scoreVolDirection(ctx: {
       invalidation: Number(invalidation.toFixed(6)),
       expectedMovePct: Number(Math.abs(pctNum(price, target)).toFixed(4)),
       method,
+      expectedEpoch:
+        ctx.lastEpoch != null ? ctx.lastEpoch + HORIZON_TICKS : null,
     },
     rationale,
     riskNote:
