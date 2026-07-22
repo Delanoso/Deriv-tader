@@ -16,7 +16,7 @@ const KIND_LABEL: Record<string, string> = {
 
 export function SymbolPanel({ analysis, active }: Props) {
   const [backtest, setBacktest] = useState<BacktestResult | null>(null);
-  const accent = analysis.symbol === "BOOM1000" ? "#0d9488" : "#2563eb";
+  const accent = analysis.symbol.startsWith("BOOM") ? "#0d9488" : "#2563eb";
   const displayConf =
     analysis.opportunity.calibratedConfidence ?? analysis.opportunity.confidence;
   const confPct = Math.round(displayConf * 100);

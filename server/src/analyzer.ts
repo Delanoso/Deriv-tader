@@ -3,6 +3,7 @@ import { buildSpikeForecast } from "./learning/hazard.js";
 import { blendConfidence } from "./learning/journal.js";
 import type { KillStatus } from "./learning/killRules.js";
 import { detectSpikes, interSpikeStats } from "./spikeDetector.js";
+import { SYMBOL_DISPLAY, isBoomSymbol } from "./symbols.js";
 import type {
   HorizonProb,
   KillStatus as KillStatusType,
@@ -13,11 +14,6 @@ import type {
   Tick,
   TradeOpportunity,
 } from "./types.js";
-
-const DISPLAY: Record<SymbolId, string> = {
-  BOOM1000: "Boom 1000",
-  CRASH1000: "Crash 1000",
-};
 
 const ADVERTISED_INTERVAL = 1000;
 
@@ -76,7 +72,7 @@ export function analyzeSymbol(
 
   return {
     symbol,
-    displayName: DISPLAY[symbol],
+    displayName: SYMBOL_DISPLAY[symbol],
     lastQuote: quotes.length ? quotes[quotes.length - 1] : null,
     lastEpoch: ticks.length ? ticks[ticks.length - 1].epoch : null,
     ticksCollected: ticks.length,
@@ -111,7 +107,7 @@ function scoreOpportunity(
   },
   learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
 ): TradeOpportunity {
-  const isBoom = symbol === "BOOM1000";
+  const isBoom = isBoomSymbol(symbol);
   const spikeBias = isBoom ? "bullish" : "bearish";
   const spikeAction = isBoom
     ? "Spike hunt: look for Boom UP-spike (CALL / rise)"
@@ -254,7 +250,7 @@ export function backtestSpikeStrategy(
     return { trades: 0, wins: 0, winRate: null, avgReturnPct: null };
   }
 
-  const isBoom = symbol === "BOOM1000";
+  const isBoom = isBoomSymbol(symbol);
   const gaps = spikes
     .map((s) => s.ticksSincePrevious)
     .filter((g): g is number => g != null && g > 0);

@@ -13,6 +13,7 @@ import {
 } from "./learning/evaluator.js";
 import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
+import { emptySymbolRecord } from "./symbols.js";
 import type {
   LearningSummary,
   MarketSnapshot,
@@ -23,15 +24,8 @@ import type {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
 
-const analyses: Record<SymbolId, SymbolAnalysis | null> = {
-  BOOM1000: null,
-  CRASH1000: null,
-};
-
-const bootstrapped: Record<SymbolId, boolean> = {
-  BOOM1000: false,
-  CRASH1000: false,
-};
+const analyses: Record<SymbolId, SymbolAnalysis | null> = emptySymbolRecord(null);
+const bootstrapped: Record<SymbolId, boolean> = emptySymbolRecord(false);
 
 const journal = new SignalJournal();
 

@@ -1,4 +1,10 @@
-export type SymbolId = "BOOM1000" | "CRASH1000";
+export type SymbolId =
+  | "BOOM300N"
+  | "BOOM900"
+  | "BOOM1000"
+  | "CRASH300N"
+  | "CRASH900"
+  | "CRASH1000";
 
 export interface Tick {
   epoch: number;
@@ -208,7 +214,7 @@ export interface SymbolAnalysis {
 
 export interface MarketSnapshot {
   connected: boolean;
-  symbols: Record<SymbolId, SymbolAnalysis>;
+  symbols: Partial<Record<SymbolId, SymbolAnalysis>>;
   learning: LearningSummary;
   disclaimer: string;
 }

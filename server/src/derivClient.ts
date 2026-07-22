@@ -1,34 +1,31 @@
 import WebSocket from "ws";
-import type { SymbolId, Tick } from "./types.js";
+import {
+  SYMBOL_IDS,
+  emptySymbolRecord,
+  mapSymbols,
+  type SymbolId,
+} from "./symbols.js";
+import type { Tick } from "./types.js";
 
 const DERIV_URL =
   process.env.DERIV_WS_URL ||
   "wss://ws.derivws.com/websockets/v3?app_id=1089";
-const SYMBOLS: SymbolId[] = ["BOOM1000", "CRASH1000"];
+const SYMBOLS: SymbolId[] = [...SYMBOL_IDS];
 const CHUNK = 5000;
-const TARGET_TICKS = Number(process.env.DERIV_HISTORY_TICKS || 20000);
-const POLL_MS = Number(process.env.DERIV_POLL_MS || 1000);
+const TARGET_TICKS = Number(process.env.DERIV_HISTORY_TICKS || 15000);
+const POLL_MS = Number(process.env.DERIV_POLL_MS || 4000);
 
 type TickHandler = (symbol: SymbolId, ticks: Tick[]) => void;
 type StatusHandler = (connected: boolean, detail?: string) => void;
 
 export class DerivClient {
   private ws: WebSocket | null = null;
-  private ticks: Record<SymbolId, Tick[]> = {
-    BOOM1000: [],
-    CRASH1000: [],
-  };
-  private bootstrapDone: Record<SymbolId, boolean> = {
-    BOOM1000: false,
-    CRASH1000: false,
-  };
+  private ticks: Record<SymbolId, Tick[]> = mapSymbols(() => []);
+  private bootstrapDone: Record<SymbolId, boolean> = emptySymbolRecord(false);
   private pendingHistory: Record<
     SymbolId,
     { chunks: Tick[][]; nextEnd: number | "latest"; waiting: boolean }
-  > = {
-    BOOM1000: { chunks: [], nextEnd: "latest", waiting: false },
-    CRASH1000: { chunks: [], nextEnd: "latest", waiting: false },
-  };
+  > = mapSymbols(() => ({ chunks: [], nextEnd: "latest", waiting: false }));
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -37,7 +34,7 @@ export class DerivClient {
   private onStatus: StatusHandler;
   private intentionalClose = false;
   private pollInFlight = false;
-  /** req_id → purpose metadata */
+  private pollCursor = 0;
   private reqMeta = new Map<number, { kind: "bootstrap" | "poll"; symbol: SymbolId }>();
 
   constructor(onTicks: TickHandler, onStatus: StatusHandler) {
@@ -65,18 +62,26 @@ export class DerivClient {
 
   private connect(): void {
     this.onStatus(false, "Connecting to Deriv…");
-    this.bootstrapDone = { BOOM1000: false, CRASH1000: false };
-    this.pendingHistory = {
-      BOOM1000: { chunks: [], nextEnd: "latest", waiting: false },
-      CRASH1000: { chunks: [], nextEnd: "latest", waiting: false },
-    };
+    this.bootstrapDone = emptySymbolRecord(false);
+    this.pendingHistory = mapSymbols(() => ({
+      chunks: [],
+      nextEnd: "latest" as const,
+      waiting: false,
+    }));
     this.reqMeta.clear();
     const ws = new WebSocket(DERIV_URL);
     this.ws = ws;
 
     ws.on("open", () => {
       this.onStatus(true, "Connected — loading history");
-      for (const symbol of SYMBOLS) this.requestHistoryChunk(symbol, "latest", "bootstrap");
+      // Stagger bootstrap starts to reduce Deriv rate-limit hits.
+      SYMBOLS.forEach((symbol, i) => {
+        setTimeout(() => {
+          if (!this.intentionalClose) {
+            this.requestHistoryChunk(symbol, "latest", "bootstrap");
+          }
+        }, i * 700);
+      });
       this.pingTimer = setInterval(() => this.send({ ping: 1 }), 30000);
     });
 
@@ -127,6 +132,7 @@ export class DerivClient {
   private startPolling(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.onStatus(true, "Live (history poll)");
+    // Round-robin: one symbol per tick to stay under Deriv rate limits.
     this.pollTimer = setInterval(() => this.pollLatest(), POLL_MS);
   }
 
@@ -134,9 +140,9 @@ export class DerivClient {
     if (this.pollInFlight) return;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.pollInFlight = true;
-    for (const symbol of SYMBOLS) {
-      this.requestHistoryChunk(symbol, "latest", "poll");
-    }
+    const symbol = SYMBOLS[this.pollCursor % SYMBOLS.length];
+    this.pollCursor += 1;
+    this.requestHistoryChunk(symbol, "latest", "poll");
     setTimeout(() => {
       this.pollInFlight = false;
     }, Math.max(200, POLL_MS - 100));
@@ -194,7 +200,6 @@ export class DerivClient {
       return;
     }
 
-    // Walk further back for another chunk.
     state.nextEnd = oldest - 1;
     this.onStatus(true, `Loading ${symbol} history… ${total}/${TARGET_TICKS}`);
     this.requestHistoryChunk(symbol, oldest - 1, "bootstrap");

@@ -10,6 +10,7 @@ import type {
   Scoreboard,
   SymbolId,
 } from "../types.js";
+import { SYMBOL_IDS } from "../symbols.js";
 import { DEFAULT_COST_PCT, withCostFields } from "./costs.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -195,7 +196,7 @@ export class SignalJournal {
   }
 
   summarize(): LearningSummary {
-    const symbols: SymbolId[] = ["BOOM1000", "CRASH1000"];
+    const symbols: SymbolId[] = [...SYMBOL_IDS];
     const all = this.store.signals;
     const liveRows = all.filter((s) => s.source === "live");
     const seedRows = all.filter((s) => s.source === "bootstrap");

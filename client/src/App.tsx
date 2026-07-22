@@ -7,7 +7,11 @@ import type { SymbolId } from "./types";
 import "./App.css";
 
 const TABS: { id: SymbolId; label: string }[] = [
+  { id: "BOOM300N", label: "Boom 300" },
+  { id: "BOOM900", label: "Boom 900" },
   { id: "BOOM1000", label: "Boom 1000" },
+  { id: "CRASH300N", label: "Crash 300" },
+  { id: "CRASH900", label: "Crash 900" },
   { id: "CRASH1000", label: "Crash 1000" },
 ];
 
@@ -16,8 +20,8 @@ export default function App() {
   const [tab, setTab] = useState<SymbolId>("BOOM1000");
 
   const active = snapshot.symbols[tab];
-  const bothReady = useMemo(
-    () => Boolean(snapshot.symbols.BOOM1000 && snapshot.symbols.CRASH1000),
+  const loadedCount = useMemo(
+    () => TABS.filter((t) => Boolean(snapshot.symbols[t.id])).length,
     [snapshot.symbols],
   );
 
@@ -30,7 +34,7 @@ export default function App() {
           <p className="brand">SpikeScope</p>
           <div className={`pulse-dot ${live ? "on" : ""}`} />
         </div>
-        <h1>Live feedback for Boom 1000 & Crash 1000</h1>
+        <h1>Spike hunts for Boom & Crash 300 / 900 / 1000</h1>
         <p className="lede">
           Built to hunt Boom up-spikes and Crash down-spikes — not the quiet
           candles between them — then journal whether the hunt paid.
@@ -38,7 +42,7 @@ export default function App() {
         <div className="cta-row">
           <span className={`status-pill ${live ? "live" : "off"}`}>{status}</span>
           <span className="status-pill soft">
-            {bothReady ? "Both markets loaded" : "Warming tick history…"}
+            {loadedCount}/{TABS.length} markets loaded
           </span>
           {active?.kill?.killed && (
             <span className="status-pill off">Kill rule active</span>

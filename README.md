@@ -32,7 +32,7 @@ Optional: set `PORT` for the server (default `8787`).
 
 | Piece | Behavior |
 | --- | --- |
-| Live ticks | Subscribes to `BOOM1000` / `CRASH1000` via `wss://ws.derivws.com` (demo `app_id=1089`) |
+| Live ticks | Polls `BOOM300N` / `BOOM900` / `BOOM1000` / `CRASH300N` / `CRASH900` / `CRASH1000` |
 | Spike detect | Robust z-score on tick returns (up for Boom, down for Crash) |
 | Signals | Spike hunts only (Boom up / Crash down). Quiet drift candles are stand-aside |
 | Reliability | Mean/median inter-spike gap + rough Weibull shape; flags memoryless regimes |
