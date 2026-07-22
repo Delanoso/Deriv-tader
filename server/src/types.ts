@@ -40,6 +40,44 @@ export interface TradeOpportunity {
   riskNote: string;
 }
 
+export interface HorizonProb {
+  horizonTicks: number;
+  probability: number | null;
+  survivors: number;
+  hits: number;
+  fallback?: boolean;
+}
+
+export interface HazardBin {
+  ageFrom: number;
+  ageTo: number;
+  hazard: number | null;
+  survivors: number;
+  events: number;
+}
+
+export interface SpikeForecast {
+  ticksSinceLastSpike: number | null;
+  gapSampleSize: number;
+  meanGap: number | null;
+  medianGap: number | null;
+  horizons: HorizonProb[];
+  bestHorizon: HorizonProb | null;
+  hazardCurve: HazardBin[];
+  timingEdgeWeak: boolean;
+  timingNote: string;
+}
+
+export interface KillStatus {
+  killed: boolean;
+  reason: string | null;
+  liveSamples: number;
+  liveWinRateAfterCost: number | null;
+  thresholdSamples: number;
+  thresholdWinRateAfterCost: number;
+  warning: boolean;
+}
+
 export interface IndicatorSnapshot {
   rsi14: number | null;
   ema9: number | null;
@@ -161,6 +199,8 @@ export interface SymbolAnalysis {
   indicators: IndicatorSnapshot;
   opportunity: TradeOpportunity;
   reliability: ReliabilityStats;
+  forecast: SpikeForecast;
+  kill: KillStatus;
   candles: Candle[];
   recentTicks: Tick[];
   updatedAt: number;

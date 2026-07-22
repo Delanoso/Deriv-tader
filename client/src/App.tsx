@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMarketFeed } from "./hooks/useMarketFeed";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { LearningPanel } from "./components/LearningPanel";
+import { ForecastPanel } from "./components/ForecastPanel";
 import type { SymbolId } from "./types";
 import "./App.css";
 
@@ -39,12 +40,16 @@ export default function App() {
           <span className="status-pill soft">
             {bothReady ? "Both markets loaded" : "Warming tick history…"}
           </span>
-          {learning && (
+          {active?.kill?.killed && (
+            <span className="status-pill off">Kill rule active</span>
+          )}
+          {!active?.kill?.killed && active?.kill?.warning && (
+            <span className="status-pill off">Kill warning</span>
+          )}
+          {active?.forecast?.bestHorizon?.probability != null && (
             <span className="status-pill soft">
-              Live {learning.live?.resolved ?? 0} resolved
-              {learning.live?.overallWinRateAfterCost != null
-                ? ` · ${Math.round(learning.live.overallWinRateAfterCost * 100)}% after cost`
-                : ""}
+              Best P(spike≤{active.forecast.bestHorizon.horizonTicks})=
+              {Math.round(active.forecast.bestHorizon.probability * 100)}%
             </span>
           )}
         </div>
@@ -77,7 +82,10 @@ export default function App() {
             <p>Pulling Deriv history for {tab}…</p>
           </div>
         )}
-        <LearningPanel learning={learning} symbol={tab} />
+        <aside className="side-stack">
+          <ForecastPanel forecast={active?.forecast} kill={active?.kill} />
+          <LearningPanel learning={learning} symbol={tab} />
+        </aside>
       </main>
 
       <footer className="foot">

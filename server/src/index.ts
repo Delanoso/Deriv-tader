@@ -11,6 +11,7 @@ import {
   horizonFor,
   resolvePendingSignals,
 } from "./learning/evaluator.js";
+import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
 import type {
   LearningSummary,
@@ -69,7 +70,9 @@ function processSymbol(symbol: SymbolId): void {
   }
 
   refreshLearning();
-  const analysis = analyzeSymbol(symbol, ticks, learning.calibrated);
+  const spikeStats = learning.live.bySymbol[symbol]?.byKind.spike_watch;
+  const kill = evaluateKillRule(spikeStats);
+  const analysis = analyzeSymbol(symbol, ticks, learning.calibrated, kill);
   analyses[symbol] = analysis;
 
   const opp = analysis.opportunity;

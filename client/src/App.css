@@ -222,7 +222,22 @@ button {
 }
 
 .symbol-panel,
-.loading-panel,
+.loading-panel {
+  position: relative;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  padding: 1rem 1rem 1.25rem;
+  animation: rise 0.65s ease 0.12s both;
+}
+
+.side-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.forecast-panel,
 .learning-panel {
   position: relative;
   background: rgba(255, 255, 255, 0.72);
@@ -231,6 +246,115 @@ button {
   backdrop-filter: blur(8px);
   padding: 1rem 1rem 1.25rem;
   animation: rise 0.65s ease 0.12s both;
+}
+
+.forecast-panel h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.horizon-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.horizon-card {
+  border-top: 1px solid var(--line);
+  padding: 0.45rem 0;
+}
+
+.horizon-card span {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+}
+
+.horizon-card strong {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+}
+
+.horizon-card em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.timing-note {
+  margin: 0.75rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+.timing-note.weak {
+  border-left: 3px solid var(--coral);
+  padding-left: 0.65rem;
+}
+
+.timing-note.ok {
+  border-left: 3px solid var(--teal);
+  padding-left: 0.65rem;
+}
+
+.kill-banner {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.7rem;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.kill-banner.killed {
+  background: rgba(255, 107, 74, 0.12);
+  border-left: 3px solid var(--coral);
+  color: #9a3412;
+}
+
+.kill-banner.warn {
+  background: rgba(234, 179, 8, 0.12);
+  border-left: 3px solid #ca8a04;
+  color: #854d0e;
+}
+
+.hazard-chart {
+  margin-top: 0.9rem;
+  height: 110px;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.3rem;
+  align-items: end;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6rem;
+}
+
+.hazard-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.hazard-bar {
+  width: 100%;
+  min-height: 2px;
+  background: linear-gradient(180deg, var(--teal), rgba(13, 148, 136, 0.35));
+}
+
+.hazard-col span {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--ink-soft);
+}
+
+.hazard-caption {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
 }
 
 .learning-panel h3,

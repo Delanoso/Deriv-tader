@@ -1,8 +1,13 @@
 import { atr, buildCandlesFromTicks, ema, momentum, rsi } from "./indicators.js";
+import { buildSpikeForecast } from "./learning/hazard.js";
 import { blendConfidence } from "./learning/journal.js";
+import type { KillStatus } from "./learning/killRules.js";
 import { detectSpikes, interSpikeStats } from "./spikeDetector.js";
 import type {
+  HorizonProb,
+  KillStatus as KillStatusType,
   OpportunityKind,
+  SpikeForecast,
   SymbolAnalysis,
   SymbolId,
   Tick,
@@ -20,10 +25,21 @@ export type CalibrationMap = Partial<
   Record<SymbolId, Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>>
 >;
 
+const IDLE_KILL: KillStatusType = {
+  killed: false,
+  reason: null,
+  liveSamples: 0,
+  liveWinRateAfterCost: null,
+  thresholdSamples: 50,
+  thresholdWinRateAfterCost: 0.45,
+  warning: false,
+};
+
 export function analyzeSymbol(
   symbol: SymbolId,
   ticks: Tick[],
   calibration?: CalibrationMap,
+  kill: KillStatusType = IDLE_KILL,
 ): SymbolAnalysis {
   const candles = buildCandlesFromTicks(ticks, 60);
   const closes = candles.map((c) => c.close);
@@ -33,6 +49,7 @@ export function analyzeSymbol(
   const ticksSinceLastSpike =
     lastSpike != null ? ticks.length - 1 - lastSpike.index : null;
   const stats = interSpikeStats(spikes);
+  const forecast = buildSpikeForecast(spikes, ticksSinceLastSpike);
 
   const indicators = {
     rsi14: rsi(closes, 14),
@@ -47,14 +64,12 @@ export function analyzeSymbol(
     {
       ticksSinceLastSpike,
       meanInterSpike: stats.mean,
-      rsi: indicators.rsi14,
-      ema9: indicators.ema9,
-      ema21: indicators.ema21,
-      momentum: indicators.momentum20,
       justSpiked:
         lastSpike != null &&
         ticksSinceLastSpike != null &&
         ticksSinceLastSpike <= 25,
+      forecast,
+      kill,
     },
     calibration?.[symbol],
   );
@@ -75,11 +90,10 @@ export function analyzeSymbol(
       meanInterSpikeTicks: stats.mean,
       medianInterSpikeTicks: stats.median,
       weibullShapeApprox: stats.shapeApprox,
-      memorylessNote:
-        stats.shapeApprox != null && stats.shapeApprox < 1.2
-          ? "Inter-spike gaps look near-memoryless: waiting longer does not strongly raise spike odds."
-          : "Need more spikes (or shape > ~1.2) before treating wait-time as informative.",
+      memorylessNote: forecast.timingNote,
     },
+    forecast,
+    kill,
     candles: candles.slice(-180),
     recentTicks: ticks.slice(-400),
     updatedAt: Date.now(),
@@ -91,16 +105,13 @@ function scoreOpportunity(
   ctx: {
     ticksSinceLastSpike: number | null;
     meanInterSpike: number | null;
-    rsi: number | null;
-    ema9: number | null;
-    ema21: number | null;
-    momentum: number | null;
     justSpiked: boolean;
+    forecast: SpikeForecast;
+    kill: KillStatus | KillStatusType;
   },
   learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
 ): TradeOpportunity {
   const isBoom = symbol === "BOOM1000";
-  // Target: the discontinuous spike (Boom up / Crash down) — not quiet drift candles.
   const spikeBias = isBoom ? "bullish" : "bearish";
   const spikeAction = isBoom
     ? "Spike hunt: look for Boom UP-spike (CALL / rise)"
@@ -116,47 +127,66 @@ function scoreOpportunity(
 
   const mean = ctx.meanInterSpike ?? ADVERTISED_INTERVAL;
   const since = ctx.ticksSinceLastSpike;
+  const p500 = horizonOf(ctx.forecast, 500);
+  const p1000 = horizonOf(ctx.forecast, 1000);
 
-  if (ctx.ticksSinceLastSpike == null) {
+  if (ctx.kill.killed) {
     kind = "stand_aside";
     bias = "neutral";
+    action = "Kill rule active — stand aside";
+    confidence = 0.1;
+    rationale.push(ctx.kill.reason || "Live spike-hunt edge failed kill criteria.");
+    riskNote = "Edge invalidated by live after-cost results. Do not force trades.";
+  } else if (ctx.ticksSinceLastSpike == null) {
     action = "Collecting spike baseline — wait for more history";
     confidence = 0.15;
     rationale.push("Not enough confirmed spikes in the loaded window yet.");
   } else if (ctx.justSpiked) {
-    // Cooldown after a spike — do not chase drift candles.
-    kind = "stand_aside";
-    bias = "neutral";
     action = "Cooldown after spike — wait before next hunt";
     confidence = 0.18;
     rationale.push("A spike just printed. Stand aside until a new hunt window opens.");
     riskNote = "Clusters can happen, but immediate re-entry is usually noise.";
   } else if (since != null && since >= mean * 0.35) {
-    // Primary setup: hunt the next spike in the spike direction.
     kind = "spike_watch";
     bias = spikeBias;
     action = spikeAction;
     const ratio = since / mean;
-    // Soft ramp; keep capped because gaps are often near-memoryless.
-    confidence = Math.min(0.52, 0.26 + ratio * 0.1);
-    rationale.push(
-      `${since} ticks since last spike vs mean ~${Math.round(mean)} (${(ratio * 100).toFixed(0)}% of mean).`,
-    );
+
+    // Blend age ratio with empirical short-horizon probability when available.
+    const empiric = p500?.probability ?? p1000?.probability;
+    if (empiric != null) {
+      confidence = Math.min(0.55, 0.22 + empiric * 0.45 + Math.min(ratio, 1.5) * 0.05);
+      rationale.push(
+        `Empirical P(spike≤500)=${fmtProb(p500)} · P(≤1000)=${fmtProb(p1000)} (age ${since}).`,
+      );
+    } else {
+      confidence = Math.min(0.48, 0.26 + ratio * 0.1);
+      rationale.push(
+        `${since} ticks since last spike vs mean ~${Math.round(mean)} (${(ratio * 100).toFixed(0)}% of mean).`,
+      );
+    }
+
     rationale.push(
       isBoom
-        ? "Trade thesis: capture the next Boom up-spike, not the soft down-drift."
-        : "Trade thesis: capture the next Crash down-spike, not the soft up-drift.",
+        ? "Trade thesis: capture the next Boom up-spike, not quiet candles."
+        : "Trade thesis: capture the next Crash down-spike, not quiet candles.",
     );
-    if (ratio < 0.85) {
-      rationale.push("Still early vs mean gap — size smaller; timing edge is weak.");
-    } else {
-      rationale.push("Past ~85% of mean gap — watch window is active (still not a guarantee).");
+    rationale.push(ctx.forecast.timingNote);
+
+    if (ctx.forecast.timingEdgeWeak) {
+      confidence = Math.min(confidence, 0.42);
+      rationale.push("Timing edge weak/flat — confidence capped.");
     }
+    if (ctx.kill.warning) {
+      confidence = Math.min(confidence, 0.35);
+      rationale.push(
+        `Kill warning: live after-cost WR ${pct(ctx.kill.liveWinRateAfterCost)} on ${ctx.kill.liveSamples} samples.`,
+      );
+    }
+
     riskNote =
-      "Spike timing is stochastic. Do not average in just because you have waited.";
+      "Spike timing is stochastic. Size from horizon odds, not hope.";
   } else {
-    kind = "stand_aside";
-    bias = "neutral";
     action = "Too soon after last spike — skip quiet candles";
     confidence = 0.2;
     rationale.push(
@@ -164,17 +194,19 @@ function scoreOpportunity(
         ? `Only ${since} ticks since last spike (need ~${Math.round(mean * 0.35)}+ to open a hunt).`
         : "Spike timing baseline unavailable.",
     );
-    rationale.push("Small between-spike candles are not the target.");
+    if (p500?.probability != null) {
+      rationale.push(`Even now, P(spike≤500 ticks)=${fmtProb(p500)}.`);
+    }
   }
 
-  const raw = Number(confidence.toFixed(2));
+  const raw = Number(Math.max(0.08, Math.min(0.6, confidence)).toFixed(2));
   let calibrated = raw;
   if (kind === "spike_watch") {
     const learned = learnedRates?.spike_watch;
     if (learned != null) {
       calibrated = blendConfidence(raw, learned, true);
       rationale.push(
-        `Learning blend (spike hunts only): ~${(learned * 100).toFixed(0)}% → calibrated ${Math.round(calibrated * 100)}%.`,
+        `Learning blend (spike hunts): ~${(learned * 100).toFixed(0)}% → calibrated ${Math.round(calibrated * 100)}%.`,
       );
     }
   }
@@ -188,6 +220,20 @@ function scoreOpportunity(
     rationale,
     riskNote,
   };
+}
+
+function horizonOf(forecast: SpikeForecast, h: number): HorizonProb | null {
+  return forecast.horizons.find((x) => x.horizonTicks === h) ?? null;
+}
+
+function fmtProb(h: HorizonProb | null | undefined): string {
+  if (!h || h.probability == null) return "n/a";
+  return `${(h.probability * 100).toFixed(0)}% (n=${h.survivors})`;
+}
+
+function pct(v: number | null): string {
+  if (v == null) return "n/a";
+  return `${(v * 100).toFixed(1)}%`;
 }
 
 /**
@@ -229,7 +275,6 @@ export function backtestSpikeStrategy(
     const entry = ticks[entryIndex].quote;
     const withinHorizon = nextSpike.index - entryIndex <= horizon;
     if (!withinHorizon) {
-      // Missed / late — count as loss with near-flat path return
       const exit = ticks[Math.min(ticks.length - 1, entryIndex + horizon)];
       const raw = (exit.quote - entry) / entry;
       const pnl = (isBoom ? raw : -raw) * 100;
@@ -238,7 +283,6 @@ export function backtestSpikeStrategy(
     }
 
     const spikeRet = ((nextSpike.quote - entry) / entry) * 100;
-    // Boom wants up-spike (positive), Crash wants down-spike (negative → flip)
     const pnl = isBoom ? spikeRet : -spikeRet;
     returns.push(pnl);
     if (pnl > 0) wins += 1;
@@ -257,7 +301,7 @@ export function backtestSpikeStrategy(
   };
 }
 
-/** @deprecated Use backtestSpikeStrategy — kept as alias for older imports. */
+/** @deprecated Use backtestSpikeStrategy */
 export function backtestDriftStrategy(
   symbol: SymbolId,
   ticks: Tick[],
