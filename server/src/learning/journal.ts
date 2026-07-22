@@ -141,7 +141,17 @@ export class SignalJournal {
     const prevKey = this.lastLiveKey[input.symbol];
     const prevAt = this.lastLiveAt[input.symbol] ?? 0;
     const sameSetup = prevKey === key;
-    const cooldownMs = 120_000;
+    const learnMax =
+      process.env.PAPER_LEARN_MAX == null ||
+      process.env.PAPER_LEARN_MAX === "" ||
+      (process.env.PAPER_LEARN_MAX !== "0" &&
+        process.env.PAPER_LEARN_MAX !== "false");
+    const cooldownMs = Number(
+      process.env.PAPER_COOLDOWN_MS || (learnMax ? 45_000 : 120_000),
+    );
+    const maxPending = Number(
+      process.env.PAPER_MAX_PENDING || (learnMax ? 3 : 1),
+    );
 
     if (sameSetup && now - prevAt < cooldownMs) return null;
 
@@ -151,18 +161,18 @@ export class SignalJournal {
         s.status === "pending" &&
         s.kind === input.kind &&
         s.bias === input.bias &&
-        Math.abs(s.entryEpoch - input.entryEpoch) < 90,
+        Math.abs(s.entryEpoch - input.entryEpoch) < (learnMax ? 45 : 90),
     );
     if (recentDup) return null;
 
-    const openSame = this.store.signals.find(
+    const openLive = this.store.signals.filter(
       (s) =>
         s.symbol === input.symbol &&
         s.status === "pending" &&
         s.kind === input.kind &&
         s.source === "live",
     );
-    if (openSame) return null;
+    if (openLive.length >= maxPending) return null;
 
     const signal: JournalSignal = {
       id: makeId(input.symbol, input.entryEpoch),

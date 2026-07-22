@@ -245,6 +245,14 @@ function scoreOpportunity(
   const since = ctx.ticksSinceLastSpike;
   const p500 = horizonOf(ctx.forecast, 500);
   const p1000 = horizonOf(ctx.forecast, 1000);
+  const learnMax =
+    process.env.PAPER_LEARN_MAX == null ||
+    process.env.PAPER_LEARN_MAX === "" ||
+    (process.env.PAPER_LEARN_MAX !== "0" &&
+      process.env.PAPER_LEARN_MAX !== "false");
+  const watchAgeRatio = Number(
+    process.env.SPIKE_WATCH_AGE_RATIO || (learnMax ? 0.28 : 0.35),
+  );
 
   if (ctx.kill.killed) {
     kind = "stand_aside";
@@ -262,7 +270,7 @@ function scoreOpportunity(
     confidence = 0.18;
     rationale.push("A spike just printed. Stand aside until a new hunt window opens.");
     riskNote = "Clusters can happen, but immediate re-entry is usually noise.";
-  } else if (since != null && since >= mean * 0.35) {
+  } else if (since != null && since >= mean * watchAgeRatio) {
     kind = "spike_watch";
     bias = spikeBias;
     action = spikeAction;

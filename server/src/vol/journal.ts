@@ -104,10 +104,22 @@ export class VolJournal {
     if (input.bias === ("neutral" as VolBias)) return null;
     const key = `${input.bias}:${input.target.toFixed(5)}`;
     const now = Date.now();
-    if (this.lastKey === key && now - this.lastAt < 180_000) return null;
-    if (this.store.signals.some((s) => s.status === "pending" && s.bias === input.bias)) {
-      return null;
-    }
+    const learnMax =
+      process.env.PAPER_LEARN_MAX == null ||
+      process.env.PAPER_LEARN_MAX === "" ||
+      (process.env.PAPER_LEARN_MAX !== "0" &&
+        process.env.PAPER_LEARN_MAX !== "false");
+    const cooldownMs = Number(
+      process.env.VOL_PAPER_COOLDOWN_MS || (learnMax ? 60_000 : 180_000),
+    );
+    const maxPending = Number(
+      process.env.VOL_PAPER_MAX_PENDING || (learnMax ? 2 : 1),
+    );
+    if (this.lastKey === key && now - this.lastAt < cooldownMs) return null;
+    const openBias = this.store.signals.filter(
+      (s) => s.status === "pending" && s.bias === input.bias,
+    );
+    if (openBias.length >= maxPending) return null;
 
     const signal: VolJournalSignal = {
       ...input,

@@ -14,7 +14,7 @@ import {
 import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
 import { buildRegime, ageRegimeFromRatio } from "./learning/regimes.js";
-import { passSpikeEntryGate } from "./learning/entryGate.js";
+import { passSpikeEntryGate, paperLearnMax } from "./learning/entryGate.js";
 import { combineFocusWeight } from "./learning/focusWeights.js";
 import {
   getGateTelemetry,
@@ -119,7 +119,11 @@ function processSymbol(symbol: SymbolId): void {
 
   refreshLearning();
   const spikeStats = learning.live.bySymbol[symbol]?.byKind.spike_watch;
-  const kill = evaluateKillRule(spikeStats);
+  const killRaw = evaluateKillRule(spikeStats);
+  // Learn-max: keep kill as a soft warning so paper hunts still journal.
+  const kill = paperLearnMax()
+    ? { ...killRaw, killed: false, warning: killRaw.killed || killRaw.warning }
+    : killRaw;
 
   const liveRegs = learning.regimes?.[symbol];
   const seedRegs = learning.seedRegimes?.[symbol];

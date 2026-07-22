@@ -16,8 +16,16 @@ export interface EntryGateContext {
   ageFocus?: FocusWeightView;
 }
 
+/** Maximize paper-journal volume for learning (default on). */
+export function paperLearnMax(): boolean {
+  const v = process.env.PAPER_LEARN_MAX;
+  if (v == null || v === "") return true;
+  return v !== "0" && v !== "false";
+}
+
 /**
- * Only journal higher-quality spike hunts so learning isn't diluted by junk entries.
+ * Journal spike hunts for paper learning.
+ * With PAPER_LEARN_MAX (default), gates are soft so we gather as many resolved paths as possible.
  */
 export function passSpikeEntryGate(
   analysis: SymbolAnalysis,
@@ -28,7 +36,11 @@ export function passSpikeEntryGate(
   if (opp.kind !== "spike_watch") {
     return { allow: false, reasons: ["Not a spike-hunt window"] };
   }
-  if (analysis.kill?.killed) {
+
+  const learnMax = paperLearnMax();
+
+  // In learn-max mode, kill is warning-only at analyze time; still respect hard kill if forced off.
+  if (analysis.kill?.killed && !learnMax) {
     return { allow: false, reasons: ["Kill rule active"] };
   }
 
@@ -48,10 +60,18 @@ export function passSpikeEntryGate(
         100
       : null;
 
-  const minConf = Number(process.env.ENTRY_MIN_CONF || 0.22);
-  const minP500 = Number(process.env.ENTRY_MIN_P500 || 0.1);
-  const minAgeRatio = Number(process.env.ENTRY_MIN_AGE_RATIO || 0.35);
-  const maxStopPct = Number(process.env.ENTRY_MAX_STOP_PCT || 2.5);
+  const minConf = Number(
+    process.env.ENTRY_MIN_CONF || (learnMax ? 0.12 : 0.22),
+  );
+  const minP500 = Number(
+    process.env.ENTRY_MIN_P500 || (learnMax ? 0.05 : 0.1),
+  );
+  const minAgeRatio = Number(
+    process.env.ENTRY_MIN_AGE_RATIO || (learnMax ? 0.25 : 0.35),
+  );
+  const maxStopPct = Number(
+    process.env.ENTRY_MAX_STOP_PCT || (learnMax ? 4 : 2.5),
+  );
   const hardRegime =
     ctx.hardRegimeFilter ??
     (process.env.ENTRY_HARD_REGIME === "1" ||
@@ -60,26 +80,40 @@ export function passSpikeEntryGate(
     process.env.ENTRY_HARD_FOCUS === "1" ||
     process.env.ENTRY_HARD_FOCUS === "true";
 
-  if (conf < minConf) {
-    reasons.push(`Confidence ${conf.toFixed(2)} < ${minConf}`);
+  // Learn-max: only block obvious junk (no spikes sampled). Confidence/timing soft.
+  if (analysis.reliability.sampleSpikes < (learnMax ? 2 : 3)) {
+    reasons.push("Need more sampled spikes");
   }
-  const timingOk =
-    (p500 != null && p500 >= minP500) ||
-    (ageRatio != null && ageRatio >= minAgeRatio);
-  if (!timingOk) {
-    reasons.push(
-      `Timing weak (P≤500=${p500 == null ? "n/a" : (p500 * 100).toFixed(0)}%, ageRatio=${ageRatio == null ? "n/a" : ageRatio.toFixed(2)})`,
-    );
-  }
-  if (stopPct != null && stopPct > maxStopPct) {
-    reasons.push(`Stop ${stopPct.toFixed(2)}% > max ${maxStopPct}%`);
-  }
-  if (analysis.reliability.sampleSpikes < 3) {
-    reasons.push("Need ≥3 sampled spikes");
+
+  if (!learnMax) {
+    if (conf < minConf) {
+      reasons.push(`Confidence ${conf.toFixed(2)} < ${minConf}`);
+    }
+    const timingOk =
+      (p500 != null && p500 >= minP500) ||
+      (ageRatio != null && ageRatio >= minAgeRatio);
+    if (!timingOk) {
+      reasons.push(
+        `Timing weak (P≤500=${p500 == null ? "n/a" : (p500 * 100).toFixed(0)}%, ageRatio=${ageRatio == null ? "n/a" : ageRatio.toFixed(2)})`,
+      );
+    }
+    if (stopPct != null && stopPct > maxStopPct) {
+      reasons.push(`Stop ${stopPct.toFixed(2)}% > max ${maxStopPct}%`);
+    }
+  } else {
+    // Still require a minimal hunt window: either age or empiric odds.
+    const timingOk =
+      (p500 != null && p500 >= minP500) ||
+      (ageRatio != null && ageRatio >= minAgeRatio) ||
+      conf >= minConf;
+    if (!timingOk) {
+      reasons.push("Outside learn-max hunt window");
+    }
   }
 
   const pref = scoreAgeRegime(age, ctx.liveRegimes, ctx.seedRegimes);
   if (
+    !learnMax &&
     hardRegime &&
     pref.currentWeak &&
     pref.prefer != null &&
@@ -90,7 +124,7 @@ export function passSpikeEntryGate(
     );
   }
 
-  if (hardFocus) {
+  if (!learnMax && hardFocus) {
     if (ctx.symbolFocus?.deprioritize) {
       reasons.push(`Focus: ${ctx.symbolFocus.note}`);
     }
