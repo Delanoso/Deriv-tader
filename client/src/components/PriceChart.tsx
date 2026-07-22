@@ -209,13 +209,28 @@ export function PriceChart({
     const forecastMapped: Marker[] = forecastMarkers
       .map((f) => {
         const bucket = Math.floor(f.epoch / step) * step;
-        const onHistory = byEpoch.has(bucket);
-        const onFuture = Boolean(
-          last && bucket > last.epoch && bucket <= maxFutureEpoch + step,
-        );
-        if (!onHistory && !onFuture) return null;
+        let time: number | null = null;
+        if (byEpoch.has(bucket)) {
+          time = bucket;
+        } else if (last && bucket > last.epoch && bucket <= maxFutureEpoch + step) {
+          time = bucket;
+        } else if (candles.length) {
+          // Snap trade-entry markers onto the nearest visible candle.
+          let best = candles[0].epoch;
+          let bestDist = Math.abs(f.epoch - best);
+          for (const c of candles) {
+            const d = Math.abs(f.epoch - c.epoch);
+            if (d < bestDist) {
+              best = c.epoch;
+              bestDist = d;
+            }
+          }
+          // Only snap when the open is within ~2 candle steps of a bar we have.
+          if (bestDist <= step * 2) time = best;
+        }
+        if (time == null) return null;
         return {
-          time: bucket as Time,
+          time: time as Time,
           position: f.position ?? "belowBar",
           color: f.color,
           shape: f.shape ?? "circle",

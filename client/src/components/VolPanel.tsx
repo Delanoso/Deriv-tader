@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { VolAnalysis, VolJournalSignal } from "../types";
-import { PriceChart, type ChartLevel } from "./PriceChart";
+import { PriceChart, type ChartLevel, type ForecastMarker } from "./PriceChart";
 
 interface Props {
   analysis: VolAnalysis;
@@ -17,12 +17,27 @@ export function VolPanel({ analysis }: Props) {
   const levels = useMemo((): ChartLevel[] => {
     if (!openTrade) return [];
     return [
+      { price: openTrade.entryPrice, color: "#b45309", title: "Entry" },
       { price: openTrade.target, color: "#0d9488", title: "Target" },
       { price: openTrade.stretch, color: "#2563eb", title: "Stretch" },
       {
         price: openTrade.invalidation,
         color: "#ff6b4a",
         title: "Stop",
+      },
+    ];
+  }, [openTrade]);
+
+  const tradeMarkers = useMemo((): ForecastMarker[] => {
+    if (!openTrade?.entryEpoch) return [];
+    const up = openTrade.bias === "up";
+    return [
+      {
+        epoch: openTrade.entryEpoch,
+        label: "open",
+        color: "#b45309",
+        position: up ? "belowBar" : "aboveBar",
+        shape: "circle",
       },
     ];
   }, [openTrade]);
@@ -67,6 +82,7 @@ export function VolPanel({ analysis }: Props) {
         spikes={[]}
         accent={accent}
         levels={levels}
+        forecastMarkers={tradeMarkers}
         candleStepSec={analysis.timeframe?.candleSec ?? 60}
       />
 

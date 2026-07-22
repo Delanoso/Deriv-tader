@@ -1,5 +1,5 @@
 import type { SymbolAnalysis, BacktestResult, JournalSignal } from "../types";
-import { PriceChart, type ChartLevel } from "./PriceChart";
+import { PriceChart, type ChartLevel, type ForecastMarker } from "./PriceChart";
 import { useEffect, useMemo, useState } from "react";
 
 interface Props {
@@ -24,10 +24,15 @@ export function SymbolPanel({ analysis, active }: Props) {
   const confPct = Math.round(displayConf * 100);
   const rawPct = Math.round(analysis.opportunity.confidence * 100);
 
-  // Only draw levels while a paper trade is open for this market.
+  // Only draw levels / entry marker while a paper trade is open for this market.
   const levels = useMemo((): ChartLevel[] => {
     if (!openTrade) return [];
     const out: ChartLevel[] = [];
+    out.push({
+      price: openTrade.entryPrice,
+      color: "#b45309",
+      title: "Entry",
+    });
     if (openTrade.target != null) {
       out.push({ price: openTrade.target, color: "#0d9488", title: "Target" });
     }
@@ -43,6 +48,20 @@ export function SymbolPanel({ analysis, active }: Props) {
     }
     return out;
   }, [openTrade]);
+
+  const tradeMarkers = useMemo((): ForecastMarker[] => {
+    if (!openTrade?.entryEpoch) return [];
+    const up = openTrade.bias === "bullish" || isBoom;
+    return [
+      {
+        epoch: openTrade.entryEpoch,
+        label: "open",
+        color: "#b45309",
+        position: up ? "belowBar" : "aboveBar",
+        shape: "circle",
+      },
+    ];
+  }, [openTrade, isBoom]);
 
   useEffect(() => {
     if (!active) return;
@@ -102,6 +121,7 @@ export function SymbolPanel({ analysis, active }: Props) {
         spikes={analysis.recentSpikes}
         accent={accent}
         levels={levels}
+        forecastMarkers={tradeMarkers}
         spikeDirection={isBoom ? "up" : "down"}
       />
 
