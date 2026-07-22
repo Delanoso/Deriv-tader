@@ -2,6 +2,8 @@ import { atr, buildCandlesFromTicks, ema, momentum, rsi } from "./indicators.js"
 import { buildSpikeForecast } from "./learning/hazard.js";
 import { blendConfidence } from "./learning/journal.js";
 import type { KillStatus } from "./learning/killRules.js";
+import type { RegimePreference } from "./learning/regimePrefs.js";
+import { ageRegimeFromRatio } from "./learning/regimes.js";
 import { detectSpikes, interSpikeStats } from "./spikeDetector.js";
 import { SYMBOL_DISPLAY, isBoomSymbol } from "./symbols.js";
 import type {
@@ -38,6 +40,7 @@ export function analyzeSymbol(
   ticks: Tick[],
   calibration?: CalibrationMap,
   kill: KillStatusType = IDLE_KILL,
+  regimePref?: RegimePreference | null,
 ): SymbolAnalysis {
   const candles = buildCandlesFromTicks(ticks, 60);
   const closes = candles.map((c) => c.close);
@@ -57,6 +60,13 @@ export function analyzeSymbol(
     momentum20: momentum(closes, 20),
   };
 
+  const mean = stats.mean;
+  const ageRatio =
+    mean != null && mean > 0 && ticksSinceLastSpike != null
+      ? ticksSinceLastSpike / mean
+      : null;
+  const age = ageRegimeFromRatio(ageRatio);
+
   const opportunity = scoreOpportunity(
     symbol,
     {
@@ -68,6 +78,8 @@ export function analyzeSymbol(
         ticksSinceLastSpike <= 25,
       forecast,
       kill,
+      ageRegime: age,
+      regimePref: regimePref ?? null,
     },
     calibration?.[symbol],
   );
@@ -185,6 +197,8 @@ function scoreOpportunity(
     justSpiked: boolean;
     forecast: SpikeForecast;
     kill: KillStatus | KillStatusType;
+    ageRegime?: string;
+    regimePref?: RegimePreference | null;
   },
   learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
 ): TradeOpportunity {
@@ -259,6 +273,14 @@ function scoreOpportunity(
       rationale.push(
         `Kill warning: live after-cost WR ${pct(ctx.kill.liveWinRateAfterCost)} on ${ctx.kill.liveSamples} samples.`,
       );
+    }
+
+    if (ctx.regimePref?.note) {
+      confidence = Math.min(0.58, confidence * ctx.regimePref.confidenceMult);
+      rationale.push(ctx.regimePref.note);
+      if (ctx.ageRegime) {
+        rationale.push(`Current age regime: ${ctx.ageRegime}.`);
+      }
     }
 
     riskNote =

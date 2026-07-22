@@ -223,6 +223,7 @@ export class SignalJournal {
     const liveBySymbol = {} as LearningSummary["live"]["bySymbol"];
     const seedBySymbol = {} as LearningSummary["seed"]["bySymbol"];
     const regimes: LearningSummary["regimes"] = {};
+    const seedRegimes: LearningSummary["seedRegimes"] = {};
     const insights: string[] = [];
 
     for (const symbol of symbols) {
@@ -235,6 +236,9 @@ export class SignalJournal {
       seedBySymbol[symbol] = toScoreboard(seedSub);
       regimes[symbol] = regimeBuckets(
         liveSub.filter((s) => s.kind === "spike_watch"),
+      );
+      seedRegimes[symbol] = regimeBuckets(
+        seedSub.filter((s) => s.kind === "spike_watch"),
       );
 
       calibrated[symbol] = {};
@@ -274,8 +278,18 @@ export class SignalJournal {
         }
       }
 
-      const insight = regimeInsight(symbol, regimes[symbol] ?? []);
-      if (insight) insights.push(insight);
+      const liveInsight = regimeInsight(symbol, regimes[symbol] ?? [], "live", 5);
+      if (liveInsight) {
+        insights.push(liveInsight);
+      } else {
+        const seedInsight = regimeInsight(
+          symbol,
+          seedRegimes[symbol] ?? [],
+          "seed",
+          6,
+        );
+        if (seedInsight) insights.push(seedInsight);
+      }
     }
 
     const liveOverall = statsFor(liveRows, "all");
@@ -310,6 +324,7 @@ export class SignalJournal {
       },
       bySymbol,
       regimes,
+      seedRegimes,
       insights: insights.slice(0, 8),
       recent: [...all].slice(-12).reverse(),
       calibrated,
@@ -338,6 +353,8 @@ function regimeBuckets(signals: JournalSignal[]): RegimeBucketStats[] {
 function regimeInsight(
   symbol: SymbolId,
   buckets: RegimeBucketStats[],
+  source: "live" | "seed",
+  minN: number,
 ): string | null {
   const ranked = buckets
     .map((b) => ({
@@ -346,14 +363,15 @@ function regimeInsight(
       exp: b.stats.decayExpectancyNetPct ?? b.stats.expectancyNetPct,
       wr: b.stats.decayWinRateAfterCost ?? b.stats.winRateAfterCost,
     }))
-    .filter((b) => b.n >= 5 && b.exp != null);
+    .filter((b) => b.n >= minN && b.exp != null);
   if (ranked.length < 2) return null;
   ranked.sort((a, b) => (b.exp ?? -99) - (a.exp ?? -99));
   const best = ranked[0];
   const worst = ranked[ranked.length - 1];
   if (best.exp == null || worst.exp == null) return null;
   if (best.exp - worst.exp < 0.01) return null;
-  return `${symbol}: ${best.key} hunts beat ${worst.key} (exp ${best.exp.toFixed(3)}% vs ${worst.exp.toFixed(3)}%) — prefer ${best.key} age regime.`;
+  const tag = source === "seed" ? "seed" : "live";
+  return `${symbol}: [${tag}] ${best.key} hunts beat ${worst.key} (exp ${best.exp.toFixed(3)}% vs ${worst.exp.toFixed(3)}%) — prefer ${best.key} age regime.`;
 }
 
 function scoreboardParts(signals: JournalSignal[]): {

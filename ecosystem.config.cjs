@@ -1,0 +1,32 @@
+/** pm2 process file for SpikeScope on the research VPS. */
+module.exports = {
+  apps: [
+    {
+      name: "spikescope",
+      cwd: "/opt/spikescope/server",
+      script: "dist/index.js",
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: "512M",
+      env: {
+        NODE_ENV: "production",
+        PORT: "8788",
+        DERIV_POLL_MS: "3000",
+        DERIV_HISTORY_TICKS: "15000",
+        COST_PCT_ROUND_TRIP: "0.02",
+        KILL_MIN_SAMPLES: "50",
+        KILL_MIN_WR: "0.45",
+        KILL_MIN_EXPECTANCY: "0",
+        ENTRY_MIN_CONF: "0.22",
+        ENTRY_MIN_P500: "0.1",
+        ENTRY_MIN_AGE_RATIO: "0.35",
+        ENTRY_MAX_STOP_PCT: "2.5",
+        ENTRY_HARD_REGIME: "0",
+        VOL_CANDLE_SEC: "60",
+        VOL_MIN_HOLD_TICKS: "180",
+        VOL_HORIZON_TICKS: "900",
+      },
+    },
+  ],
+};

@@ -31,7 +31,9 @@ export function LearningPanel({ learning, symbol }: Props) {
   const cost = learning.costPctAssumed;
   const calibrated = learning.calibrated[symbol]?.spike_watch;
   const regimes = learning.regimes?.[symbol] ?? [];
+  const seedRegimes = learning.seedRegimes?.[symbol] ?? [];
   const insights = (learning.insights ?? []).filter((i) => i.startsWith(symbol));
+  const gate = learning.gateTelemetry;
 
   const counts = (Object.keys(LABELS) as SymbolId[]).map((id) => {
     const board = learning.live.bySymbol[id]?.byKind.spike_watch;
@@ -43,6 +45,12 @@ export function LearningPanel({ learning, symbol }: Props) {
   const exp =
     spikeLive?.decayExpectancyNetPct ?? spikeLive?.expectancyNetPct ?? null;
   const decayWr = spikeLive?.decayWinRateAfterCost ?? spikeLive?.winRateAfterCost;
+
+  const liveRegimeRows = regimes.filter((r) => r.stats.total > 0);
+  const seedRegimeRows = seedRegimes.filter((r) => {
+    const n = r.stats.winsAfterCost + r.stats.lossesAfterCost;
+    return n > 0;
+  });
 
   return (
     <section className="learning-panel">
@@ -87,15 +95,36 @@ export function LearningPanel({ learning, symbol }: Props) {
         </div>
       </div>
 
-      {regimes.length > 0 && (
+      {liveRegimeRows.length > 0 && (
         <div className="regime-box">
           <h4>By age regime (live)</h4>
           <div className="kind-rows">
-            {regimes.map((r) => {
+            {liveRegimeRows.map((r) => {
               const n = r.stats.winsAfterCost + r.stats.lossesAfterCost;
               const e = r.stats.decayExpectancyNetPct ?? r.stats.expectancyNetPct;
               return (
                 <div className="kind-row" key={r.key}>
+                  <span>{r.label}</span>
+                  <span>
+                    {e != null ? `${e.toFixed(3)}%` : pct(r.stats.winRateAfterCost)}
+                  </span>
+                  <span>n={n}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {seedRegimeRows.length > 0 && (
+        <div className="regime-box seed-regimes">
+          <h4>By age regime (seed — context only)</h4>
+          <div className="kind-rows">
+            {seedRegimeRows.map((r) => {
+              const n = r.stats.winsAfterCost + r.stats.lossesAfterCost;
+              const e = r.stats.expectancyNetPct;
+              return (
+                <div className="kind-row" key={`seed-${r.key}`}>
                   <span>{r.label}</span>
                   <span>
                     {e != null ? `${e.toFixed(3)}%` : pct(r.stats.winRateAfterCost)}
@@ -125,6 +154,20 @@ export function LearningPanel({ learning, symbol }: Props) {
           {(spikeSeed?.wins ?? 0) + (spikeSeed?.losses ?? 0)}
         </p>
       </div>
+
+      {gate && (gate.allowed > 0 || gate.rejected > 0) && (
+        <div className="seed-box">
+          <h4>Entry gate (this process)</h4>
+          <p>
+            allowed {gate.allowed} · rejected {gate.rejected}
+            {Object.keys(gate.reasons).length
+              ? ` · ${Object.entries(gate.reasons)
+                  .map(([k, v]) => `${k}:${v}`)
+                  .join(" · ")}`
+              : ""}
+          </p>
+        </div>
+      )}
 
       <div className="index-trade-counts">
         <h4>Trades by index</h4>

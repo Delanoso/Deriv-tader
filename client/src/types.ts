@@ -217,7 +217,14 @@ export interface LearningSummary {
     }
   >;
   regimes?: Partial<Record<SymbolId, RegimeBucketStats[]>>;
+  seedRegimes?: Partial<Record<SymbolId, RegimeBucketStats[]>>;
   insights?: string[];
+  gateTelemetry?: {
+    allowed: number;
+    rejected: number;
+    reasons: Record<string, number>;
+    updatedAt: number;
+  };
   recent: JournalSignal[];
   calibrated: Partial<
     Record<

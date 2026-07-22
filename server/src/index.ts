@@ -13,8 +13,14 @@ import {
 } from "./learning/evaluator.js";
 import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
-import { buildRegime } from "./learning/regimes.js";
+import { buildRegime, ageRegimeFromRatio } from "./learning/regimes.js";
 import { passSpikeEntryGate } from "./learning/entryGate.js";
+import {
+  getGateTelemetry,
+  recordGateAllow,
+  recordGateReject,
+} from "./learning/gateTelemetry.js";
+import { scoreAgeRegime } from "./learning/regimePrefs.js";
 import { emptySymbolRecord } from "./symbols.js";
 import type {
   LearningSummary,
@@ -47,7 +53,10 @@ const volJournal = new VolJournal();
 
 let connected = false;
 let statusDetail = "Booting";
-let learning: LearningSummary = journal.summarize();
+let learning: LearningSummary = {
+  ...journal.summarize(),
+  gateTelemetry: getGateTelemetry(),
+};
 
 let volConnected = false;
 let volStatusDetail = "Vol feed idle";
@@ -81,7 +90,10 @@ function buildSnapshot(): MarketSnapshot {
 }
 
 function refreshLearning(): void {
-  learning = journal.summarize();
+  learning = {
+    ...journal.summarize(),
+    gateTelemetry: getGateTelemetry(),
+  };
 }
 
 function refreshVolLearning(): void {
@@ -106,7 +118,28 @@ function processSymbol(symbol: SymbolId): void {
   refreshLearning();
   const spikeStats = learning.live.bySymbol[symbol]?.byKind.spike_watch;
   const kill = evaluateKillRule(spikeStats);
-  const analysis = analyzeSymbol(symbol, ticks, learning.calibrated, kill);
+
+  // Prefer live regimes when available; seed fills the gap until live matures.
+  const liveRegs = learning.regimes?.[symbol];
+  const seedRegs = learning.seedRegimes?.[symbol];
+  const prev = analyses[symbol];
+  const since = prev?.ticksSinceLastSpike ?? null;
+  const meanGap = prev?.reliability.meanInterSpikeTicks ?? null;
+  const ageRatio =
+    meanGap != null && meanGap > 0 && since != null ? since / meanGap : null;
+  const regimePref = scoreAgeRegime(
+    ageRegimeFromRatio(ageRatio),
+    liveRegs,
+    seedRegs,
+  );
+
+  const analysis = analyzeSymbol(
+    symbol,
+    ticks,
+    learning.calibrated,
+    kill,
+    regimePref,
+  );
   analyses[symbol] = analysis;
 
   const opp = analysis.opportunity;
@@ -116,9 +149,12 @@ function processSymbol(symbol: SymbolId): void {
     analysis.lastQuote != null &&
     analysis.lastEpoch != null
   ) {
-    const gate = passSpikeEntryGate(analysis);
+    const gate = passSpikeEntryGate(analysis, {
+      liveRegimes: liveRegs,
+      seedRegimes: seedRegs,
+    });
     if (gate.allow) {
-      journal.maybeRecordLive({
+      const row = journal.maybeRecordLive({
         symbol,
         kind: "spike_watch",
         bias: opp.bias,
@@ -135,7 +171,10 @@ function processSymbol(symbol: SymbolId): void {
         invalidation: analysis.spikePlan?.invalidation,
         regime: buildRegime(analysis),
       });
+      if (row) recordGateAllow();
       refreshLearning();
+    } else {
+      recordGateReject(gate.reasons, symbol);
     }
   }
 

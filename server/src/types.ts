@@ -240,8 +240,17 @@ export interface LearningSummary {
   >;
   /** Live spike-hunt stats broken down by age regime (per symbol). */
   regimes: Partial<Record<SymbolId, RegimeBucketStats[]>>;
+  /** Seed/bootstrap spike-hunt stats by age regime (context only). */
+  seedRegimes: Partial<Record<SymbolId, RegimeBucketStats[]>>;
   /** Short auto insights from ablation-style regime comparison. */
   insights: string[];
+  /** Entry-gate allow/reject counters since process start. */
+  gateTelemetry?: {
+    allowed: number;
+    rejected: number;
+    reasons: Record<string, number>;
+    updatedAt: number;
+  };
   recent: JournalSignal[];
   /** Calibrated from LIVE decay-weighted expectancy/hit-rate only. */
   calibrated: Partial<

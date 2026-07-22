@@ -1,14 +1,28 @@
-import type { SymbolAnalysis } from "../types.js";
+import type { RegimeBucketStats, SymbolAnalysis } from "../types.js";
+import { ageRegimeFromRatio } from "./regimes.js";
+import { scoreAgeRegime } from "./regimePrefs.js";
 
 export interface EntryGateResult {
   allow: boolean;
   reasons: string[];
+  /** Soft regime note — does not by itself reject. */
+  regimeNote?: string | null;
+}
+
+export interface EntryGateContext {
+  liveRegimes?: RegimeBucketStats[];
+  seedRegimes?: RegimeBucketStats[];
+  /** When true, reject clearly weak age regimes (seed/live) after enough samples. */
+  hardRegimeFilter?: boolean;
 }
 
 /**
  * Only journal higher-quality spike hunts so learning isn't diluted by junk entries.
  */
-export function passSpikeEntryGate(analysis: SymbolAnalysis): EntryGateResult {
+export function passSpikeEntryGate(
+  analysis: SymbolAnalysis,
+  ctx: EntryGateContext = {},
+): EntryGateResult {
   const reasons: string[] = [];
   const opp = analysis.opportunity;
   if (opp.kind !== "spike_watch") {
@@ -26,6 +40,7 @@ export function passSpikeEntryGate(analysis: SymbolAnalysis): EntryGateResult {
   const since = analysis.ticksSinceLastSpike;
   const ageRatio =
     mean != null && mean > 0 && since != null ? since / mean : null;
+  const age = ageRegimeFromRatio(ageRatio);
   const stopPct =
     analysis.spikePlan != null && analysis.lastQuote
       ? (Math.abs(analysis.spikePlan.invalidation - analysis.lastQuote) /
@@ -33,10 +48,15 @@ export function passSpikeEntryGate(analysis: SymbolAnalysis): EntryGateResult {
         100
       : null;
 
-  const minConf = Number(process.env.ENTRY_MIN_CONF || 0.24);
-  const minP500 = Number(process.env.ENTRY_MIN_P500 || 0.12);
-  const minAgeRatio = Number(process.env.ENTRY_MIN_AGE_RATIO || 0.4);
+  // Slightly softer defaults so live samples accrue while still filtering junk.
+  const minConf = Number(process.env.ENTRY_MIN_CONF || 0.22);
+  const minP500 = Number(process.env.ENTRY_MIN_P500 || 0.1);
+  const minAgeRatio = Number(process.env.ENTRY_MIN_AGE_RATIO || 0.35);
   const maxStopPct = Number(process.env.ENTRY_MAX_STOP_PCT || 2.5);
+  const hardRegime =
+    ctx.hardRegimeFilter ??
+    (process.env.ENTRY_HARD_REGIME === "1" ||
+      process.env.ENTRY_HARD_REGIME === "true");
 
   if (conf < minConf) {
     reasons.push(`Confidence ${conf.toFixed(2)} < ${minConf}`);
@@ -56,5 +76,21 @@ export function passSpikeEntryGate(analysis: SymbolAnalysis): EntryGateResult {
     reasons.push("Need ≥3 sampled spikes");
   }
 
-  return { allow: reasons.length === 0, reasons };
+  const pref = scoreAgeRegime(age, ctx.liveRegimes, ctx.seedRegimes);
+  if (
+    hardRegime &&
+    pref.currentWeak &&
+    pref.prefer != null &&
+    pref.prefer !== age
+  ) {
+    reasons.push(
+      `Age regime ${age} underperforms ${pref.prefer} — skip (ENTRY_HARD_REGIME)`,
+    );
+  }
+
+  return {
+    allow: reasons.length === 0,
+    reasons,
+    regimeNote: pref.note,
+  };
 }

@@ -96,10 +96,17 @@ export function CalculatorPage() {
             const exp = st?.decayExpectancyNetPct ?? st?.expectancyNetPct;
             const wr = st?.decayWinRateAfterCost ?? st?.winRateAfterCost;
             const n = (st?.wins ?? 0) + (st?.losses ?? 0);
+            const insight = (data.learning?.insights ?? []).find((i: string) =>
+              i.startsWith(index),
+            );
+            const tipCore = st
+              ? `Spike-hunt live: exp ${exp != null ? `${exp.toFixed(3)}%` : "—"} · WR ${wr != null ? `${(wr * 100).toFixed(0)}%` : "—"} · n=${n}`
+              : null;
             setLearnTip(
-              st
-                ? `Spike-hunt live: exp ${exp != null ? `${exp.toFixed(3)}%` : "—"} · WR ${wr != null ? `${(wr * 100).toFixed(0)}%` : "—"} · n=${n}`
-                : null,
+              tipCore && insight
+                ? `${tipCore} · ${insight.replace(`${index}: `, "")}`
+                : tipCore ??
+                    (insight ? insight.replace(`${index}: `, "") : null),
             );
           }
         })

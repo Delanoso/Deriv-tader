@@ -65,7 +65,8 @@ Open `/calculator` — pick an index, enter stake (0.1–max), get an approximat
 5. Calibrate: **live decay-weighted expectancy + hit-rate only** (seed never promotes confidence)
 6. Hazard: empirical P(spike within 100/500/1000/2000 ticks | current age)
 7. Kill rule: stand aside on weak after-cost WR **or** negative expectancy after enough samples
-8. Regime insights: compare early/mid/late/overdue expectancy and surface which age band pays
+8. Regime insights: compare early/mid/late/overdue expectancy (live when ready, else seed) and soft-bias confidence toward stronger age bands
+9. Entry gate: quality filter + optional hard regime filter (`ENTRY_HARD_REGIME`) with allow/reject telemetry
 
 ## Honest reliability notes
 
