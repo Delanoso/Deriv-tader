@@ -15,6 +15,7 @@ import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
 import { buildRegime, ageRegimeFromRatio } from "./learning/regimes.js";
 import { passSpikeEntryGate } from "./learning/entryGate.js";
+import { combineFocusWeight } from "./learning/focusWeights.js";
 import {
   getGateTelemetry,
   recordGateAllow,
@@ -34,6 +35,7 @@ import {
   resolveVolPending,
 } from "./vol/analyzer.js";
 import { VolFeed } from "./vol/feed.js";
+import { passVolEntryGate } from "./vol/entryGate.js";
 import { VolJournal } from "./vol/journal.js";
 import type {
   VolAnalysis,
@@ -119,7 +121,6 @@ function processSymbol(symbol: SymbolId): void {
   const spikeStats = learning.live.bySymbol[symbol]?.byKind.spike_watch;
   const kill = evaluateKillRule(spikeStats);
 
-  // Prefer live regimes when available; seed fills the gap until live matures.
   const liveRegs = learning.regimes?.[symbol];
   const seedRegs = learning.seedRegimes?.[symbol];
   const prev = analyses[symbol];
@@ -127,11 +128,11 @@ function processSymbol(symbol: SymbolId): void {
   const meanGap = prev?.reliability.meanInterSpikeTicks ?? null;
   const ageRatio =
     meanGap != null && meanGap > 0 && since != null ? since / meanGap : null;
-  const regimePref = scoreAgeRegime(
-    ageRegimeFromRatio(ageRatio),
-    liveRegs,
-    seedRegs,
-  );
+  const age = ageRegimeFromRatio(ageRatio);
+  const regimePref = scoreAgeRegime(age, liveRegs, seedRegs);
+  const symbolFocus = learning.focus?.bySymbol?.[symbol];
+  const ageFocus = learning.focus?.byAgeRegime?.[symbol]?.[age];
+  const combinedFocus = combineFocusWeight(symbolFocus, ageFocus);
 
   const analysis = analyzeSymbol(
     symbol,
@@ -139,6 +140,11 @@ function processSymbol(symbol: SymbolId): void {
     learning.calibrated,
     kill,
     regimePref,
+    {
+      levelHint: learning.levelHints?.[symbol] ?? null,
+      focusWeight: combinedFocus.weight,
+      focusNote: combinedFocus.note,
+    },
   );
   analyses[symbol] = analysis;
 
@@ -152,6 +158,8 @@ function processSymbol(symbol: SymbolId): void {
     const gate = passSpikeEntryGate(analysis, {
       liveRegimes: liveRegs,
       seedRegimes: seedRegs,
+      symbolFocus,
+      ageFocus,
     });
     if (gate.allow) {
       const row = journal.maybeRecordLive({
@@ -204,7 +212,9 @@ function processVol(symbol: VolSymbolId): void {
   volAnalysis = analysis;
 
   const pred = analysis.prediction;
+  const gate = passVolEntryGate(analysis, volLearning);
   if (
+    gate.allow &&
     (pred.bias === "up" || pred.bias === "down") &&
     analysis.lastQuote != null &&
     analysis.lastEpoch != null

@@ -127,6 +127,7 @@ export interface JournalSignal {
   invalidation?: number;
   regime?: {
     ageRegime: "early" | "mid" | "late" | "overdue";
+    rsiRegime?: "oversold" | "neutral" | "overbought";
     ageRatio: number | null;
     weibullShape: number | null;
     timingEdgeWeak: boolean;
@@ -188,6 +189,50 @@ export interface RegimeBucketStats {
   stats: KindStats;
 }
 
+export interface OutcomeBreakdown {
+  spike: number;
+  target: number;
+  stopout: number;
+  expired: number;
+  other: number;
+  total: number;
+  dominantLoss: "spike" | "target" | "stopout" | "expired" | null;
+  note: string | null;
+}
+
+export interface FocusWeightView {
+  key: string;
+  label: string;
+  n: number;
+  expectancyNetPct: number | null;
+  weight: number;
+  deprioritize: boolean;
+  note: string;
+}
+
+export interface LevelHintView {
+  symbol: SymbolId;
+  stopPct: number;
+  targetPct: number;
+  basedOnN: number;
+  avgMfePct: number;
+  avgMaePct: number;
+  winMaeP75: number | null;
+  lossMfeP75: number | null;
+  note: string;
+}
+
+export interface WalkForwardView {
+  trainN: number;
+  holdoutN: number;
+  trainWinRateAfterCost: number | null;
+  holdoutWinRateAfterCost: number | null;
+  trainExpectancyNetPct: number | null;
+  holdoutExpectancyNetPct: number | null;
+  gapExpectancy: number | null;
+  note: string | null;
+}
+
 export interface LearningSummary {
   totalSignals: number;
   pending: number;
@@ -218,6 +263,18 @@ export interface LearningSummary {
   >;
   regimes?: Partial<Record<SymbolId, RegimeBucketStats[]>>;
   seedRegimes?: Partial<Record<SymbolId, RegimeBucketStats[]>>;
+  crossRegimes?: Partial<Record<SymbolId, RegimeBucketStats[]>>;
+  outcomes?: OutcomeBreakdown;
+  outcomesBySymbol?: Partial<Record<SymbolId, OutcomeBreakdown>>;
+  focus?: {
+    bySymbol: Partial<Record<SymbolId, FocusWeightView>>;
+    byAgeRegime?: Partial<
+      Record<SymbolId, Partial<Record<string, FocusWeightView>>>
+    >;
+    rows: FocusWeightView[];
+  };
+  levelHints?: Partial<Record<SymbolId, LevelHintView>>;
+  walkForward?: WalkForwardView;
   insights?: string[];
   gateTelemetry?: {
     allowed: number;
@@ -343,6 +400,8 @@ export interface VolJournalSignal {
   exitPrice?: number;
   returnPct?: number;
   returnNetPct?: number;
+  winAfterCost?: boolean;
+  costPctAssumed?: number;
   mfePct?: number;
   maePct?: number;
   hitTarget?: boolean;
@@ -352,6 +411,33 @@ export interface VolJournalSignal {
   source: "live" | "bootstrap";
 }
 
+export interface VolOutcomeBreakdown {
+  spike: number;
+  target: number;
+  stopout: number;
+  expired: number;
+  other: number;
+  total: number;
+  dominantLoss: "spike" | "target" | "stopout" | "expired" | null;
+  note: string | null;
+}
+
+export interface VolFocusWeight {
+  key: string;
+  label: string;
+  n: number;
+  expectancyNetPct: number | null;
+  weight: number;
+  deprioritize: boolean;
+  note: string;
+}
+
+export interface VolFocusMap {
+  byBias: Partial<Record<"up" | "down", VolFocusWeight>>;
+  rows: VolFocusWeight[];
+  preferred: "up" | "down" | null;
+}
+
 export interface VolKindStats {
   total: number;
   wins: number;
@@ -359,9 +445,17 @@ export interface VolKindStats {
   pending: number;
   winRate: number | null;
   avgReturnPct: number | null;
+  winsAfterCost: number;
+  lossesAfterCost: number;
+  winRateAfterCost: number | null;
+  avgReturnNetPct: number | null;
+  expectancyNetPct: number | null;
   avgMfePct: number | null;
   avgMaePct: number | null;
   targetHitRate: number | null;
+  decayWinRateAfterCost: number | null;
+  decayExpectancyNetPct: number | null;
+  decayEffectiveN: number;
 }
 
 export interface VolLearningSummary {
@@ -370,10 +464,18 @@ export interface VolLearningSummary {
   resolved: number;
   overallWinRate: number | null;
   targetHitRate: number | null;
+  costPctAssumed: number;
   byBias: {
     up: VolKindStats;
     down: VolKindStats;
   };
+  outcomes: VolOutcomeBreakdown;
+  outcomesByBias: {
+    up: VolOutcomeBreakdown;
+    down: VolOutcomeBreakdown;
+  };
+  insights: string[];
+  focus: VolFocusMap;
   recent: VolJournalSignal[];
   calibrated: Partial<Record<"up" | "down", number>>;
   updatedAt: number;

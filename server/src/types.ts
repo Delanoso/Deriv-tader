@@ -137,6 +137,7 @@ export interface JournalSignal {
   /** Regime snapshot at entry (learning feature set). */
   regime?: {
     ageRegime: "early" | "mid" | "late" | "overdue";
+    rsiRegime?: "oversold" | "neutral" | "overbought";
     ageRatio: number | null;
     weibullShape: number | null;
     timingEdgeWeak: boolean;
@@ -207,6 +208,50 @@ export interface RegimeBucketStats {
   stats: KindStats;
 }
 
+export interface OutcomeBreakdown {
+  spike: number;
+  target: number;
+  stopout: number;
+  expired: number;
+  other: number;
+  total: number;
+  dominantLoss: "spike" | "target" | "stopout" | "expired" | null;
+  note: string | null;
+}
+
+export interface FocusWeightView {
+  key: string;
+  label: string;
+  n: number;
+  expectancyNetPct: number | null;
+  weight: number;
+  deprioritize: boolean;
+  note: string;
+}
+
+export interface LevelHintView {
+  symbol: SymbolId;
+  stopPct: number;
+  targetPct: number;
+  basedOnN: number;
+  avgMfePct: number;
+  avgMaePct: number;
+  winMaeP75: number | null;
+  lossMfeP75: number | null;
+  note: string;
+}
+
+export interface WalkForwardView {
+  trainN: number;
+  holdoutN: number;
+  trainWinRateAfterCost: number | null;
+  holdoutWinRateAfterCost: number | null;
+  trainExpectancyNetPct: number | null;
+  holdoutExpectancyNetPct: number | null;
+  gapExpectancy: number | null;
+  note: string | null;
+}
+
 export interface LearningSummary {
   totalSignals: number;
   pending: number;
@@ -242,6 +287,23 @@ export interface LearningSummary {
   regimes: Partial<Record<SymbolId, RegimeBucketStats[]>>;
   /** Seed/bootstrap spike-hunt stats by age regime (context only). */
   seedRegimes: Partial<Record<SymbolId, RegimeBucketStats[]>>;
+  /** Live age × RSI cross buckets. */
+  crossRegimes?: Partial<Record<SymbolId, RegimeBucketStats[]>>;
+  /** Live outcome mix (spike/target/stop/expiry). */
+  outcomes?: OutcomeBreakdown;
+  outcomesBySymbol?: Partial<Record<SymbolId, OutcomeBreakdown>>;
+  /** Per-symbol / per-regime focus weights from live expectancy. */
+  focus?: {
+    bySymbol: Partial<Record<SymbolId, FocusWeightView>>;
+    byAgeRegime?: Partial<
+      Record<SymbolId, Partial<Record<string, FocusWeightView>>>
+    >;
+    rows: FocusWeightView[];
+  };
+  /** Learned stop/target distances from MFE/MAE. */
+  levelHints?: Partial<Record<SymbolId, LevelHintView>>;
+  /** Time-ordered train vs holdout report. */
+  walkForward?: WalkForwardView;
   /** Short auto insights from ablation-style regime comparison. */
   insights: string[];
   /** Entry-gate allow/reject counters since process start. */
@@ -252,7 +314,7 @@ export interface LearningSummary {
     updatedAt: number;
   };
   recent: JournalSignal[];
-  /** Calibrated from LIVE decay-weighted expectancy/hit-rate only. */
+  /** Calibrated from LIVE decay-weighted expectancy/hit-rate only (excl. holdout). */
   calibrated: Partial<
     Record<
       SymbolId,

@@ -1,9 +1,16 @@
-import type { JournalSignal } from "../types.js";
-
 /** Half-life for live-trade decay weighting (ms). Default 7 days. */
 export const DECAY_HALF_LIFE_MS = Number(
   process.env.LEARN_DECAY_HALF_LIFE_MS || 7 * 24 * 60 * 60 * 1000,
 );
+
+type DecaySignal = {
+  status: "pending" | "win" | "loss" | "expired";
+  resolvedAt?: number;
+  createdAt: number;
+  returnPct?: number;
+  returnNetPct?: number;
+  winAfterCost?: boolean;
+};
 
 export function decayWeight(
   resolvedAt: number | undefined,
@@ -16,8 +23,8 @@ export function decayWeight(
 }
 
 export function decayWeightedRate(
-  rows: JournalSignal[],
-  pick: (s: JournalSignal) => boolean | null,
+  rows: DecaySignal[],
+  pick: (s: DecaySignal) => boolean | null,
 ): { rate: number | null; effectiveN: number } {
   let wYes = 0;
   let wTotal = 0;
@@ -37,8 +44,8 @@ export function decayWeightedRate(
 }
 
 export function decayWeightedMean(
-  rows: JournalSignal[],
-  pick: (s: JournalSignal) => number | null,
+  rows: DecaySignal[],
+  pick: (s: DecaySignal) => number | null,
 ): { mean: number | null; effectiveN: number } {
   let wSum = 0;
   let wTotal = 0;

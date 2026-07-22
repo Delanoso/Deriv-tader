@@ -2,6 +2,7 @@ import { atr, buildCandlesFromTicks, ema, momentum, rsi } from "./indicators.js"
 import { buildSpikeForecast } from "./learning/hazard.js";
 import { blendConfidence } from "./learning/journal.js";
 import type { KillStatus } from "./learning/killRules.js";
+import { applyLevelHint, type LevelHint } from "./learning/levelTune.js";
 import type { RegimePreference } from "./learning/regimePrefs.js";
 import { ageRegimeFromRatio } from "./learning/regimes.js";
 import { detectSpikes, interSpikeStats } from "./spikeDetector.js";
@@ -41,6 +42,11 @@ export function analyzeSymbol(
   calibration?: CalibrationMap,
   kill: KillStatusType = IDLE_KILL,
   regimePref?: RegimePreference | null,
+  opts?: {
+    levelHint?: LevelHint | null;
+    focusWeight?: number;
+    focusNote?: string | null;
+  },
 ): SymbolAnalysis {
   const candles = buildCandlesFromTicks(ticks, 60);
   const closes = candles.map((c) => c.close);
@@ -80,6 +86,8 @@ export function analyzeSymbol(
       kill,
       ageRegime: age,
       regimePref: regimePref ?? null,
+      focusWeight: opts?.focusWeight ?? 1,
+      focusNote: opts?.focusNote ?? null,
     },
     calibration?.[symbol],
   );
@@ -97,6 +105,7 @@ export function analyzeSymbol(
     meanGap: stats.mean,
     medianGap: stats.median,
     opportunityKind: opportunity.kind,
+    levelHint: opts?.levelHint ?? null,
   });
 
   return {
@@ -137,6 +146,7 @@ function buildSpikePlan(ctx: {
   meanGap: number | null;
   medianGap: number | null;
   opportunityKind: OpportunityKind;
+  levelHint?: LevelHint | null;
 }): SpikePlan | null {
   if (ctx.lastQuote == null || ctx.lastEpoch == null) return null;
   if (ctx.spikes.length < 2) return null;
@@ -153,11 +163,22 @@ function buildSpikePlan(ctx: {
   const price = ctx.lastQuote;
   const atr = ctx.atr14 != null && ctx.atr14 > 0 ? ctx.atr14 : price * medMag;
 
-  const spikeTarget = isBoom ? price * (1 + medMag) : price * (1 - medMag);
-  const stretch = isBoom ? price * (1 + stretchMag) : price * (1 - stretchMag);
-  const invalidation = isBoom
+  const baseTarget = isBoom ? price * (1 + medMag) : price * (1 - medMag);
+  const baseStretch = isBoom ? price * (1 + stretchMag) : price * (1 - stretchMag);
+  const baseInvalidation = isBoom
     ? Math.min(price - atr, price * (1 - medMag * 0.35))
     : Math.max(price + atr, price * (1 + medMag * 0.35));
+
+  const tuned = applyLevelHint(
+    price,
+    isBoom,
+    {
+      spikeTarget: baseTarget,
+      stretch: baseStretch,
+      invalidation: baseInvalidation,
+    },
+    ctx.levelHint ?? undefined,
+  );
 
   const gap = ctx.medianGap ?? ctx.meanGap;
   let ticksToEta: number | null = null;
@@ -169,13 +190,15 @@ function buildSpikePlan(ctx: {
   }
 
   return {
-    spikeTarget: Number(spikeTarget.toFixed(5)),
-    stretch: Number(stretch.toFixed(5)),
-    invalidation: Number(invalidation.toFixed(5)),
+    spikeTarget: tuned.spikeTarget,
+    stretch: tuned.stretch,
+    invalidation: tuned.invalidation,
     expectedEpoch,
     ticksToEta,
-    expectedMovePct: Number((Math.abs(spikeTarget - price) / price * 100).toFixed(4)),
-    method: "Median spike magnitude + ATR invalidation · median-gap ETA",
+    expectedMovePct: Number(
+      ((Math.abs(tuned.spikeTarget - price) / price) * 100).toFixed(4),
+    ),
+    method: `Median spike magnitude + ATR invalidation · median-gap ETA${tuned.methodSuffix}`,
     active: ctx.opportunityKind === "spike_watch",
   };
 }
@@ -199,6 +222,8 @@ function scoreOpportunity(
     kill: KillStatus | KillStatusType;
     ageRegime?: string;
     regimePref?: RegimePreference | null;
+    focusWeight?: number;
+    focusNote?: string | null;
   },
   learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
 ): TradeOpportunity {
@@ -281,6 +306,11 @@ function scoreOpportunity(
       if (ctx.ageRegime) {
         rationale.push(`Current age regime: ${ctx.ageRegime}.`);
       }
+    }
+
+    if (ctx.focusWeight != null && ctx.focusWeight !== 1) {
+      confidence = Math.min(0.58, confidence * ctx.focusWeight);
+      if (ctx.focusNote) rationale.push(ctx.focusNote);
     }
 
     riskNote =

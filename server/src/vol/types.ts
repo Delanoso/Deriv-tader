@@ -1,3 +1,5 @@
+import type { FocusWeightView, OutcomeBreakdown } from "../types.js";
+
 export type VolSymbolId = "1HZ250V";
 
 export const VOL_SYMBOLS: VolSymbolId[] = ["1HZ250V"];
@@ -95,6 +97,9 @@ export interface VolJournalSignal {
   exitPrice?: number;
   exitEpoch?: number;
   returnPct?: number;
+  returnNetPct?: number;
+  winAfterCost?: boolean;
+  costPctAssumed?: number;
   mfePct?: number;
   maePct?: number;
   hitTarget?: boolean;
@@ -111,9 +116,23 @@ export interface VolKindStats {
   pending: number;
   winRate: number | null;
   avgReturnPct: number | null;
+  winsAfterCost: number;
+  lossesAfterCost: number;
+  winRateAfterCost: number | null;
+  avgReturnNetPct: number | null;
+  expectancyNetPct: number | null;
   avgMfePct: number | null;
   avgMaePct: number | null;
   targetHitRate: number | null;
+  decayWinRateAfterCost: number | null;
+  decayExpectancyNetPct: number | null;
+  decayEffectiveN: number;
+}
+
+export interface VolFocusMap {
+  byBias: Partial<Record<"up" | "down", FocusWeightView>>;
+  rows: FocusWeightView[];
+  preferred: "up" | "down" | null;
 }
 
 export interface VolLearningSummary {
@@ -122,10 +141,18 @@ export interface VolLearningSummary {
   resolved: number;
   overallWinRate: number | null;
   targetHitRate: number | null;
+  costPctAssumed: number;
   byBias: {
     up: VolKindStats;
     down: VolKindStats;
   };
+  outcomes: OutcomeBreakdown;
+  outcomesByBias: {
+    up: OutcomeBreakdown;
+    down: OutcomeBreakdown;
+  };
+  insights: string[];
+  focus: VolFocusMap;
   recent: VolJournalSignal[];
   calibrated: Partial<Record<"up" | "down", number>>;
   updatedAt: number;

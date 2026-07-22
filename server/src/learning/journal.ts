@@ -7,6 +7,7 @@ import type {
   KindStats,
   LearningSummary,
   OpportunityKind,
+  OutcomeBreakdown,
   RegimeBucketStats,
   Scoreboard,
   SymbolId,
@@ -14,7 +15,12 @@ import type {
 import { SYMBOL_IDS } from "../symbols.js";
 import { DEFAULT_COST_PCT, withCostFields } from "./costs.js";
 import { decayWeightedMean, decayWeightedRate } from "./decay.js";
-import type { TradeRegime } from "./regimes.js";
+import { buildFocusMap } from "./focusWeights.js";
+import { buildLevelHints } from "./levelTune.js";
+import { buildOutcomeBreakdown } from "./outcomes.js";
+import type { AgeRegime, RsiRegime, TradeRegime } from "./regimes.js";
+import { crossRegimeKey } from "./regimes.js";
+import { walkForwardSplit } from "./walkForward.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, "../../data");
@@ -130,7 +136,7 @@ export class SignalJournal {
     if (input.kind === "stand_aside") return null;
     if (!input.entryPrice || !input.entryEpoch) return null;
 
-    const key = `${input.kind}:${input.bias}:${input.regime?.ageRegime ?? "?"}`;
+    const key = `${input.kind}:${input.bias}:${input.regime?.ageRegime ?? "?"}:${input.regime?.rsiRegime ?? "?"}`;
     const now = Date.now();
     const prevKey = this.lastLiveKey[input.symbol];
     const prevAt = this.lastLiveAt[input.symbol] ?? 0;
@@ -217,6 +223,13 @@ export class SignalJournal {
     const all = this.store.signals;
     const liveRows = all.filter((s) => s.source === "live");
     const seedRows = all.filter((s) => s.source === "bootstrap");
+    const liveSpikeResolved = liveRows.filter(
+      (s) =>
+        s.kind === "spike_watch" && (s.status === "win" || s.status === "loss"),
+    );
+
+    const walkForward = walkForwardSplit(liveSpikeResolved);
+    const holdoutSet = new Set(walkForward.holdoutIds);
 
     const bySymbol = {} as LearningSummary["bySymbol"];
     const calibrated: LearningSummary["calibrated"] = {};
@@ -224,28 +237,34 @@ export class SignalJournal {
     const seedBySymbol = {} as LearningSummary["seed"]["bySymbol"];
     const regimes: LearningSummary["regimes"] = {};
     const seedRegimes: LearningSummary["seedRegimes"] = {};
+    const crossRegimes: LearningSummary["crossRegimes"] = {};
+    const outcomesBySymbol: LearningSummary["outcomesBySymbol"] = {};
     const insights: string[] = [];
 
     for (const symbol of symbols) {
       const subset = all.filter((s) => s.symbol === symbol);
       const liveSub = liveRows.filter((s) => s.symbol === symbol);
       const seedSub = seedRows.filter((s) => s.symbol === symbol);
+      const liveSpike = liveSub.filter((s) => s.kind === "spike_watch");
 
       bySymbol[symbol] = scoreboardParts(subset);
       liveBySymbol[symbol] = toScoreboard(liveSub);
       seedBySymbol[symbol] = toScoreboard(seedSub);
-      regimes[symbol] = regimeBuckets(
-        liveSub.filter((s) => s.kind === "spike_watch"),
-      );
+      regimes[symbol] = regimeBuckets(liveSpike);
       seedRegimes[symbol] = regimeBuckets(
         seedSub.filter((s) => s.kind === "spike_watch"),
       );
+      crossRegimes[symbol] = crossRegimeBuckets(liveSpike);
+      outcomesBySymbol[symbol] = buildOutcomeBreakdown(liveSpike);
 
       calibrated[symbol] = {};
       const kinds: TradeKind[] = ["drift_follow", "spike_watch", "post_spike"];
       for (const kind of kinds) {
-        const kindRows = liveSub.filter((s) => s.kind === kind);
-        const st = liveBySymbol[symbol].byKind[kind];
+        // Exclude walk-forward holdout from calibration.
+        const kindRows = liveSub.filter(
+          (s) => s.kind === kind && !holdoutSet.has(s.id),
+        );
+        const st = statsFor(kindRows, kind);
         if (!st) continue;
 
         const decayWr = decayWeightedRate(kindRows, (s) =>
@@ -257,12 +276,10 @@ export class SignalJournal {
         );
         const decayExp = decayWeightedMean(kindRows, (s) => s.returnNetPct ?? null);
 
-        // Prefer decay-weighted expectancy mapped into [0.2, 0.7] when enough mass.
         const n = Math.max(st.decayEffectiveN, decayWr.effectiveN, decayExp.effectiveN);
         if (n >= 8) {
           let learned = decayWr.rate ?? st.winRateAfterCost ?? st.winRate;
           if (decayExp.mean != null) {
-            // Map expectancy (%) into a soft probability-like score.
             const expScore = 0.5 + Math.tanh(decayExp.mean * 8) * 0.25;
             learned =
               learned != null
@@ -279,9 +296,8 @@ export class SignalJournal {
       }
 
       const liveInsight = regimeInsight(symbol, regimes[symbol] ?? [], "live", 5);
-      if (liveInsight) {
-        insights.push(liveInsight);
-      } else {
+      if (liveInsight) insights.push(liveInsight);
+      else {
         const seedInsight = regimeInsight(
           symbol,
           seedRegimes[symbol] ?? [],
@@ -290,12 +306,37 @@ export class SignalJournal {
         );
         if (seedInsight) insights.push(seedInsight);
       }
+
+      const crossInsight = crossRegimeInsight(symbol, crossRegimes[symbol] ?? []);
+      if (crossInsight) insights.push(crossInsight);
+
+      const outcomeNote = outcomesBySymbol[symbol]?.note;
+      if (outcomeNote) insights.push(`${symbol}: ${outcomeNote}`);
     }
+
+    const focus = buildFocusMap({
+      symbols,
+      liveBySymbol,
+      liveRegimes: regimes,
+    });
+    for (const row of focus.rows) {
+      if (row.deprioritize && row.n >= 8) {
+        insights.push(`${row.label}: ${row.note}`);
+      }
+    }
+
+    const levelHints = buildLevelHints(liveSpikeResolved, symbols);
+    for (const hint of Object.values(levelHints)) {
+      if (hint) insights.push(`${hint.symbol}: ${hint.note}`);
+    }
+
+    if (walkForward.note) insights.push(`Walk-forward: ${walkForward.note}`);
 
     const liveOverall = statsFor(liveRows, "all");
     const seedOverall = statsFor(seedRows, "all");
     const allResolved = all.filter((s) => s.status === "win" || s.status === "loss");
     const allWins = allResolved.filter((s) => s.status === "win").length;
+    const outcomes = buildOutcomeBreakdown(liveSpikeResolved);
 
     return {
       totalSignals: all.length,
@@ -325,7 +366,22 @@ export class SignalJournal {
       bySymbol,
       regimes,
       seedRegimes,
-      insights: insights.slice(0, 8),
+      crossRegimes,
+      outcomes,
+      outcomesBySymbol,
+      focus,
+      levelHints,
+      walkForward: {
+        trainN: walkForward.trainN,
+        holdoutN: walkForward.holdoutN,
+        trainWinRateAfterCost: walkForward.trainWinRateAfterCost,
+        holdoutWinRateAfterCost: walkForward.holdoutWinRateAfterCost,
+        trainExpectancyNetPct: walkForward.trainExpectancyNetPct,
+        holdoutExpectancyNetPct: walkForward.holdoutExpectancyNetPct,
+        gapExpectancy: walkForward.gapExpectancy,
+        note: walkForward.note,
+      },
+      insights: uniqueInsights(insights).slice(0, 12),
       recent: [...all].slice(-12).reverse(),
       calibrated,
       updatedAt: Date.now(),
@@ -333,13 +389,19 @@ export class SignalJournal {
   }
 }
 
+function uniqueInsights(lines: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of lines) {
+    if (seen.has(line)) continue;
+    seen.add(line);
+    out.push(line);
+  }
+  return out;
+}
+
 function regimeBuckets(signals: JournalSignal[]): RegimeBucketStats[] {
-  const keys: Array<TradeRegime["ageRegime"]> = [
-    "early",
-    "mid",
-    "late",
-    "overdue",
-  ];
+  const keys: AgeRegime[] = ["early", "mid", "late", "overdue"];
   return keys.map((key) => ({
     key,
     label: key,
@@ -348,6 +410,38 @@ function regimeBuckets(signals: JournalSignal[]): RegimeBucketStats[] {
       "spike_watch",
     ),
   }));
+}
+
+function crossRegimeBuckets(signals: JournalSignal[]): RegimeBucketStats[] {
+  const ages: AgeRegime[] = ["early", "mid", "late", "overdue"];
+  const rsis: RsiRegime[] = ["oversold", "neutral", "overbought"];
+  const out: RegimeBucketStats[] = [];
+  for (const age of ages) {
+    for (const rsi of rsis) {
+      const key = crossRegimeKey(age, rsi);
+      const rows = signals.filter((s) => {
+        const a = s.regime?.ageRegime ?? "mid";
+        const r =
+          (s.regime as TradeRegime | undefined)?.rsiRegime ??
+          rsiFromLegacy(s.regime?.rsi14 ?? null);
+        return a === age && r === rsi;
+      });
+      if (!rows.length) continue;
+      out.push({
+        key,
+        label: `${age} × ${rsi}`,
+        stats: statsFor(rows, "spike_watch"),
+      });
+    }
+  }
+  return out;
+}
+
+function rsiFromLegacy(rsi: number | null): RsiRegime {
+  if (rsi == null) return "neutral";
+  if (rsi < 35) return "oversold";
+  if (rsi > 65) return "overbought";
+  return "neutral";
 }
 
 function regimeInsight(
@@ -372,6 +466,27 @@ function regimeInsight(
   if (best.exp - worst.exp < 0.01) return null;
   const tag = source === "seed" ? "seed" : "live";
   return `${symbol}: [${tag}] ${best.key} hunts beat ${worst.key} (exp ${best.exp.toFixed(3)}% vs ${worst.exp.toFixed(3)}%) — prefer ${best.key} age regime.`;
+}
+
+function crossRegimeInsight(
+  symbol: SymbolId,
+  buckets: RegimeBucketStats[],
+): string | null {
+  const ranked = buckets
+    .map((b) => ({
+      key: b.key,
+      label: b.label,
+      n: b.stats.winsAfterCost + b.stats.lossesAfterCost,
+      exp: b.stats.decayExpectancyNetPct ?? b.stats.expectancyNetPct,
+    }))
+    .filter((b) => b.n >= 8 && b.exp != null);
+  if (ranked.length < 2) return null;
+  ranked.sort((a, b) => (b.exp ?? -99) - (a.exp ?? -99));
+  const best = ranked[0];
+  const worst = ranked[ranked.length - 1];
+  if (best.exp == null || worst.exp == null) return null;
+  if (best.exp - worst.exp < 0.015) return null;
+  return `${symbol}: [cross] ${best.label} beats ${worst.label} (exp ${best.exp.toFixed(3)}% vs ${worst.exp.toFixed(3)}%).`;
 }
 
 function scoreboardParts(signals: JournalSignal[]): {

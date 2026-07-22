@@ -1,19 +1,19 @@
-import type { RegimeBucketStats, SymbolAnalysis } from "../types.js";
+import type { FocusWeightView, RegimeBucketStats, SymbolAnalysis } from "../types.js";
 import { ageRegimeFromRatio } from "./regimes.js";
 import { scoreAgeRegime } from "./regimePrefs.js";
 
 export interface EntryGateResult {
   allow: boolean;
   reasons: string[];
-  /** Soft regime note — does not by itself reject. */
   regimeNote?: string | null;
 }
 
 export interface EntryGateContext {
   liveRegimes?: RegimeBucketStats[];
   seedRegimes?: RegimeBucketStats[];
-  /** When true, reject clearly weak age regimes (seed/live) after enough samples. */
   hardRegimeFilter?: boolean;
+  symbolFocus?: FocusWeightView;
+  ageFocus?: FocusWeightView;
 }
 
 /**
@@ -48,7 +48,6 @@ export function passSpikeEntryGate(
         100
       : null;
 
-  // Slightly softer defaults so live samples accrue while still filtering junk.
   const minConf = Number(process.env.ENTRY_MIN_CONF || 0.22);
   const minP500 = Number(process.env.ENTRY_MIN_P500 || 0.1);
   const minAgeRatio = Number(process.env.ENTRY_MIN_AGE_RATIO || 0.35);
@@ -57,6 +56,9 @@ export function passSpikeEntryGate(
     ctx.hardRegimeFilter ??
     (process.env.ENTRY_HARD_REGIME === "1" ||
       process.env.ENTRY_HARD_REGIME === "true");
+  const hardFocus =
+    process.env.ENTRY_HARD_FOCUS === "1" ||
+    process.env.ENTRY_HARD_FOCUS === "true";
 
   if (conf < minConf) {
     reasons.push(`Confidence ${conf.toFixed(2)} < ${minConf}`);
@@ -86,6 +88,15 @@ export function passSpikeEntryGate(
     reasons.push(
       `Age regime ${age} underperforms ${pref.prefer} — skip (ENTRY_HARD_REGIME)`,
     );
+  }
+
+  if (hardFocus) {
+    if (ctx.symbolFocus?.deprioritize) {
+      reasons.push(`Focus: ${ctx.symbolFocus.note}`);
+    }
+    if (ctx.ageFocus?.deprioritize) {
+      reasons.push(`Focus: ${ctx.ageFocus.note}`);
+    }
   }
 
   return {
