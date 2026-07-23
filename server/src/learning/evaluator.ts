@@ -19,7 +19,8 @@ const DEFAULT_HORIZON: Record<TradeKind, number> = {
 
 /**
  * Resolve pending journal signals against the latest tick buffer.
- * Wins: spike print or target touch. Losses: invalidation (stopout) or horizon expiry.
+ * Wins: spike print or target touch. Losses: invalidation (stopout).
+ * Trades stay open until stop or target — no time-based expiry.
  */
 export function resolvePendingSignals(
   journal: SignalJournal,
@@ -35,33 +36,27 @@ export function resolvePendingSignals(
     const entryIdx = findTickIndex(ticks, signal.entryEpoch, signal.entryTickIndex);
     if (entryIdx < 0) continue;
 
-    const horizonEnd = Math.min(ticks.length - 1, entryIdx + signal.horizonTicks);
-    const elapsed = ticks.length - 1 - entryIdx;
+    const pathEnd = ticks.length - 1;
+    const elapsed = pathEnd - entryIdx;
     if (elapsed < 5) continue; // need a little path
 
     if (signal.kind === "spike_watch") {
-      const path = resolveSpikeHuntPath(signal, ticks, entryIdx, horizonEnd, spikes);
+      const path = resolveSpikeHuntPath(signal, ticks, entryIdx, pathEnd, spikes);
       if (!path) continue;
       journal.updateSignal(signal.id, path);
       resolved += 1;
       continue;
     }
 
-    // drift_follow / post_spike: directional hold, cut early on adverse spike
-    const adverseSpike = spikes.find(
-      (sp) => sp.index > entryIdx && sp.index <= horizonEnd,
-    );
-    const exitIdx = adverseSpike
-      ? Math.min(adverseSpike.index, horizonEnd)
-      : elapsed >= signal.horizonTicks
-        ? horizonEnd
-        : -1;
+    // drift_follow / post_spike: directional hold, cut early on adverse spike.
+    // Stay open until an adverse spike prints — no time expiry.
+    const adverseSpike = spikes.find((sp) => sp.index > entryIdx && sp.index <= pathEnd);
+    if (!adverseSpike) continue;
 
-    if (exitIdx < 0) continue;
+    const exitIdx = adverseSpike.index;
     const exit = ticks[exitIdx];
     const ret = pctReturn(signal.bias, signal.entryPrice, exit.quote);
-    const wipedBySpike =
-      adverseSpike != null && spikeEpochs.has(adverseSpike.epoch) && ret <= 0;
+    const wipedBySpike = spikeEpochs.has(adverseSpike.epoch) && ret <= 0;
 
     journal.updateSignal(signal.id, {
       status: ret > 0 ? "win" : "loss",
@@ -69,12 +64,12 @@ export function resolvePendingSignals(
       exitPrice: exit.quote,
       exitEpoch: exit.epoch,
       returnPct: ret,
-      outcome: wipedBySpike ? "stopout" : ret > 0 ? "target" : "expired",
+      outcome: wipedBySpike ? "stopout" : ret > 0 ? "target" : "stopout",
       note: wipedBySpike
         ? "Cut by spike against the drift bias"
         : ret > 0
-          ? "Drift moved with bias"
-          : "Drift moved against bias",
+          ? "Drift moved with bias into spike"
+          : "Drift moved against bias into spike",
     });
     resolved += 1;
   }
@@ -82,11 +77,12 @@ export function resolvePendingSignals(
   return resolved;
 }
 
-function resolveSpikeHuntPath(
+/** Exported for tests — resolves a spike hunt only on stop / target / spike. */
+export function resolveSpikeHuntPath(
   signal: JournalSignal,
   ticks: Tick[],
   entryIdx: number,
-  horizonEnd: number,
+  pathEnd: number,
   spikes: { index: number; epoch: number; quote: number }[],
 ): Partial<JournalSignal> | null {
   const bullish = signal.bias === "bullish";
@@ -96,8 +92,9 @@ function resolveSpikeHuntPath(
   let exitIdx = -1;
   let mfe = 0;
   let mae = 0;
+  const end = Math.min(pathEnd, ticks.length - 1);
 
-  for (let i = entryIdx + 1; i <= horizonEnd; i++) {
+  for (let i = entryIdx + 1; i <= end; i++) {
     const px = ticks[i].quote;
     const signed = ((px - signal.entryPrice) / signal.entryPrice) * 100;
     const fav = bullish ? signed : -signed;
@@ -124,6 +121,7 @@ function resolveSpikeHuntPath(
       }
     }
 
+    // Favorable spike print counts as the hunt succeeding (same idea as target).
     const spike = spikes.find((sp) => sp.index === i);
     if (spike) {
       hitSpike = true;
@@ -132,11 +130,8 @@ function resolveSpikeHuntPath(
     }
   }
 
-  const elapsed = ticks.length - 1 - entryIdx;
-  if (exitIdx < 0) {
-    if (elapsed < signal.horizonTicks) return null;
-    exitIdx = horizonEnd;
-  }
+  // Still open — wait for stop or target/spike. Never expire on time.
+  if (exitIdx < 0) return null;
 
   const exit = ticks[exitIdx];
   const ret = pctReturn(signal.bias, signal.entryPrice, exit.quote);
@@ -171,24 +166,13 @@ function resolveSpikeHuntPath(
       hitInvalidation: false,
       outcome: hitSpike ? "spike" : "target",
       note: hitSpike
-        ? "Spike printed inside watch horizon"
+        ? "Spike printed — hunt succeeded"
         : "Hit spike target before invalidation",
       ...pathStats,
     };
   }
 
-  return {
-    status: "loss",
-    resolvedAt: Date.now(),
-    exitPrice: exit.quote,
-    exitEpoch: exit.epoch,
-    returnPct: ret,
-    hitTarget: false,
-    hitInvalidation: false,
-    outcome: "expired",
-    note: "No spike/target before watch horizon expired",
-    ...pathStats,
-  };
+  return null;
 }
 
 /**

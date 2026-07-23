@@ -265,7 +265,7 @@ function scoreVolDirection(ctx: {
     },
     rationale,
     riskNote:
-      `Vol 250 on 1m candles. Paper trades hold ≥${VOL_MIN_HOLD_TICKS / 60} minutes before target/stop exits; horizon ${VOL_HORIZON_TICKS / 60}m.`,
+      `Vol 250 on 1m candles. Paper trades hold ≥${VOL_MIN_HOLD_TICKS / 60} minutes, then exit only on target or stop (no time expiry).`,
   };
 }
 
@@ -279,14 +279,15 @@ export function resolveVolPending(
     const entryIdx = findIndex(ticks, signal.entryEpoch, signal.entryTickIndex);
     if (entryIdx < 0) continue;
     const horizon = Math.max(signal.horizonTicks, VOL_MIN_HOLD_TICKS);
-    const end = Math.min(ticks.length - 1, entryIdx + horizon);
-    const elapsed = ticks.length - 1 - entryIdx;
+    // Scan the full available path — never force-close on horizon alone.
+    const end = ticks.length - 1;
+    const elapsed = end - entryIdx;
     // Enforce minimum hold — no target/stop exit before 3 minutes.
     if (elapsed < VOL_MIN_HOLD_TICKS) continue;
 
     let hitTarget = false;
     let hitInvalidation = false;
-    let exitIdx = end;
+    let exitIdx = -1;
     let mfe = 0;
     let mae = 0;
     const exitFrom = entryIdx + VOL_MIN_HOLD_TICKS;
@@ -327,9 +328,9 @@ export function resolveVolPending(
       }
     }
 
-    const reachedHorizon = exitIdx === end && !hitTarget && !hitInvalidation;
-    if (!hitTarget && !hitInvalidation && !reachedHorizon) continue;
-    if (reachedHorizon && elapsed < horizon) continue;
+    // Stay open until stop or target — no time expiry.
+    if (!hitTarget && !hitInvalidation) continue;
+    if (exitIdx < 0) continue;
 
     const exit = ticks[exitIdx];
     const retSigned =
@@ -337,9 +338,8 @@ export function resolveVolPending(
         ? ((exit.quote - signal.entryPrice) / signal.entryPrice) * 100
         : ((signal.entryPrice - exit.quote) / signal.entryPrice) * 100;
 
-    const status = hitTarget || retSigned > 0 ? "win" : "loss";
     update(signal.id, {
-      status: hitTarget ? "win" : hitInvalidation ? "loss" : status,
+      status: hitTarget ? "win" : "loss",
       resolvedAt: Date.now(),
       exitPrice: exit.quote,
       exitEpoch: exit.epoch,
@@ -348,18 +348,10 @@ export function resolveVolPending(
       maePct: Number(mae.toFixed(5)),
       hitTarget,
       hitInvalidation,
-      outcome: hitTarget
-        ? "target"
-        : hitInvalidation
-          ? "stopout"
-          : retSigned > 0
-            ? "target"
-            : "expired",
+      outcome: hitTarget ? "target" : "stopout",
       note: hitTarget
         ? "Hit primary target"
-        : hitInvalidation
-          ? "Hit invalidation first"
-          : "Horizon expired",
+        : "Hit invalidation first",
     });
     n += 1;
   }
@@ -391,11 +383,12 @@ export function bootstrapVolHistory(
     const future = ticks;
     const entryIdx = i;
     const horizon = Math.max(pred.horizonTicks, VOL_MIN_HOLD_TICKS);
-    const end = Math.min(ticks.length - 1, entryIdx + horizon);
+    // Look ahead through remaining history; only keep seed trades that hit stop/target.
+    const end = ticks.length - 1;
     const exitFrom = entryIdx + VOL_MIN_HOLD_TICKS;
     let hitTarget = false;
     let hitInvalidation = false;
-    let exitIdx = end;
+    let exitIdx = -1;
     let mfe = 0;
     let mae = 0;
 
@@ -431,6 +424,9 @@ export function bootstrapVolHistory(
       }
     }
 
+    if (!hitTarget && !hitInvalidation) continue;
+    if (exitIdx < 0) continue;
+
     const exit = future[exitIdx];
     const holdTicks = exitIdx - entryIdx;
     const ret =
@@ -451,7 +447,7 @@ export function bootstrapVolHistory(
       invalidation: pred.targets.invalidation,
       horizonTicks: horizon,
       createdAt: Date.now(),
-      status: hitTarget ? "win" : hitInvalidation || ret <= 0 ? "loss" : "win",
+      status: hitTarget ? "win" : "loss",
       resolvedAt: Date.now(),
       exitPrice: exit.quote,
       exitEpoch: exit.epoch,
@@ -460,13 +456,7 @@ export function bootstrapVolHistory(
       maePct: Number(mae.toFixed(5)),
       hitTarget,
       hitInvalidation,
-      outcome: hitTarget
-        ? "target"
-        : hitInvalidation
-          ? "stopout"
-          : ret > 0
-            ? "target"
-            : "expired",
+      outcome: hitTarget ? "target" : "stopout",
       note: `bootstrap · held ${Math.round(holdTicks / 60)}m`,
       source: "bootstrap",
     });
