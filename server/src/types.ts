@@ -185,7 +185,7 @@ export interface JournalSignal {
   /** How the paper trade closed. */
   outcome?: "spike" | "target" | "stopout" | "expired" | "open";
   note?: string;
-  source: "live" | "bootstrap";
+  source: "live" | "bootstrap" | "manual";
 }
 
 export interface KindStats {

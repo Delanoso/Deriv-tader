@@ -466,6 +466,97 @@ button {
   color: #1d4ed8;
 }
 
+.teach-panel {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+}
+
+.teach-head h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.teach-head p {
+  margin: 0.35rem 0 0.75rem;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.teach-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.75rem;
+}
+
+.teach-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.teach-form label.teach-note {
+  grid-column: 1 / -1;
+}
+
+.teach-form input {
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.88rem;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+}
+
+.teach-form input:focus {
+  outline: 2px solid rgba(13, 148, 136, 0.35);
+  outline-offset: 1px;
+}
+
+.teach-submit {
+  grid-column: 1 / -1;
+  justify-self: start;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 650;
+  color: #fff;
+  background: var(--teal);
+  cursor: pointer;
+}
+
+.teach-submit:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.teach-ok,
+.teach-err {
+  margin: 0.55rem 0 0;
+  font-size: 0.8rem;
+}
+
+.teach-ok {
+  color: #0f766e;
+}
+
+.teach-err {
+  color: #c2410c;
+}
+
 @media (max-width: 640px) {
   .monitor-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -481,6 +572,10 @@ button {
 
   .trade-log-row .note {
     display: none;
+  }
+
+  .teach-form {
+    grid-template-columns: 1fr;
   }
 }
 

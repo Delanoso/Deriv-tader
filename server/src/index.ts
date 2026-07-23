@@ -15,6 +15,7 @@ import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
 import { buildRegime, ageRegimeFromRatio } from "./learning/regimes.js";
 import { passSpikeEntryGate, paperLearnMax } from "./learning/entryGate.js";
+import { stopFromTarget } from "./learning/riskReward.js";
 import {
   evaluateEntryPolicy,
   predictorMode,
@@ -404,6 +405,100 @@ app.get("/api/learning/signals", (req, res) => {
   if (symbol) rows = rows.filter((s) => s.symbol === symbol);
   if (status) rows = rows.filter((s) => s.status === status);
   res.json({ signals: rows.slice(-200).reverse() });
+});
+
+/** Manual teach desk — journal a user paper trade for learning. */
+app.post("/api/learning/manual", (req, res) => {
+  const body = req.body ?? {};
+  const symbol = body.symbol as SymbolId;
+  if (!SYMBOLS.includes(symbol)) {
+    res.status(400).json({ error: "Unknown symbol" });
+    return;
+  }
+
+  const analysis = analyses[symbol];
+  const ticks = client.getTicks(symbol);
+  const isBoom = symbol.startsWith("BOOM");
+  const bias =
+    body.bias === "bullish" || body.bias === "bearish"
+      ? body.bias
+      : isBoom
+        ? "bullish"
+        : "bearish";
+
+  const entryPrice = Number(
+    body.entryPrice ?? analysis?.lastQuote ?? ticks.at(-1)?.quote,
+  );
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+    res.status(400).json({ error: "Need a valid entryPrice" });
+    return;
+  }
+
+  let target = Number(body.target);
+  let invalidation = Number(body.invalidation);
+  if (!Number.isFinite(target) && analysis?.spikePlan?.spikeTarget != null) {
+    target = analysis.spikePlan.spikeTarget;
+  }
+  if (!Number.isFinite(target)) {
+    // Default ~0.15% target move in the spike direction.
+    const move = entryPrice * 0.0015;
+    target = bias === "bullish" ? entryPrice + move : entryPrice - move;
+  }
+  if (!Number.isFinite(invalidation)) {
+    invalidation = stopFromTarget(entryPrice, target, bias === "bullish");
+  } else {
+    // Keep requested stop, but if missing/wrong side, force 1:3.
+    const okSide =
+      bias === "bullish" ? invalidation < entryPrice : invalidation > entryPrice;
+    if (!okSide) {
+      invalidation = stopFromTarget(entryPrice, target, bias === "bullish");
+    }
+  }
+
+  const stretch =
+    Number.isFinite(Number(body.stretch))
+      ? Number(body.stretch)
+      : analysis?.spikePlan?.stretch;
+
+  const entryEpoch = Number(
+    body.entryEpoch ?? analysis?.lastEpoch ?? ticks.at(-1)?.epoch ?? Date.now() / 1000,
+  );
+  const entryTickIndex =
+    ticks.length > 0
+      ? Math.max(0, ticks.length - 1)
+      : Number(body.entryTickIndex ?? 0);
+  const confidence = Math.max(
+    0.1,
+    Math.min(0.95, Number(body.confidence ?? 0.55)),
+  );
+
+  const row = journal.recordManual({
+    symbol,
+    bias,
+    confidence,
+    entryPrice: Number(entryPrice.toFixed(5)),
+    entryEpoch,
+    entryTickIndex,
+    horizonTicks: horizonFor(
+      "spike_watch",
+      analysis?.reliability.meanInterSpikeTicks ?? null,
+    ),
+    target: Number(target.toFixed(5)),
+    stretch:
+      stretch != null && Number.isFinite(stretch)
+        ? Number(Number(stretch).toFixed(5))
+        : undefined,
+    invalidation: Number(invalidation.toFixed(5)),
+    regime: analysis ? buildRegime(analysis) : undefined,
+    note: typeof body.note === "string" ? body.note : undefined,
+  });
+
+  refreshLearning();
+  broadcast({ type: "learning", data: learning });
+  if (analyses[symbol]) {
+    broadcast({ type: "snapshot", data: buildSnapshot() });
+  }
+  res.json({ ok: true, signal: row, learning });
 });
 
 app.get("/api/vol", (_req, res) => {

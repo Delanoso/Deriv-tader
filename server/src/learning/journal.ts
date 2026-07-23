@@ -202,6 +202,55 @@ export class SignalJournal {
     return signal;
   }
 
+  /**
+   * Manual teach desk — user-entered paper trades for learning.
+   * Bypasses auto cooldown so you can deliberately journal setups.
+   */
+  recordManual(input: {
+    symbol: SymbolId;
+    bias: Bias;
+    confidence: number;
+    entryPrice: number;
+    entryEpoch: number;
+    entryTickIndex: number;
+    horizonTicks: number;
+    target: number;
+    stretch?: number;
+    invalidation: number;
+    regime?: TradeRegime;
+    note?: string;
+  }): JournalSignal {
+    const now = Date.now();
+    const signal: JournalSignal = {
+      id: makeId(input.symbol, input.entryEpoch),
+      symbol: input.symbol,
+      kind: "spike_watch",
+      bias: input.bias,
+      confidence: input.confidence,
+      entryPrice: input.entryPrice,
+      entryEpoch: input.entryEpoch,
+      entryTickIndex: input.entryTickIndex,
+      horizonTicks: input.horizonTicks,
+      target: input.target,
+      stretch: input.stretch,
+      invalidation: input.invalidation,
+      regime: input.regime,
+      createdAt: now,
+      status: "pending",
+      outcome: "open",
+      note: input.note?.trim()
+        ? `Manual teach: ${input.note.trim()}`
+        : "Manual teach trade",
+      source: "manual",
+    };
+    this.store.signals.push(signal);
+    this.lastLiveKey[input.symbol] = `manual:${input.bias}`;
+    this.lastLiveAt[input.symbol] = now;
+    this.trim();
+    persist(this.store);
+    return signal;
+  }
+
   addBootstrap(signals: JournalSignal[]): number {
     if (!signals.length) return 0;
     const enriched = signals.map((s) =>
@@ -231,7 +280,9 @@ export class SignalJournal {
   summarize(): LearningSummary {
     const symbols: SymbolId[] = [...SYMBOL_IDS];
     const all = this.store.signals;
-    const liveRows = all.filter((s) => s.source === "live");
+    const liveRows = all.filter(
+      (s) => s.source === "live" || s.source === "manual",
+    );
     const seedRows = all.filter((s) => s.source === "bootstrap");
     const liveSpikeResolved = liveRows.filter(
       (s) =>

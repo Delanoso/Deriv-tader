@@ -1,4 +1,5 @@
 import type { JournalSignal, LearningSummary, SymbolAnalysis } from "../types";
+import { ManualTeachPanel } from "./ManualTeachPanel";
 import { PriceChart, type ChartLevel, type ForecastMarker } from "./PriceChart";
 import { useEffect, useMemo, useState } from "react";
 
@@ -15,6 +16,7 @@ interface Props {
 export function SymbolPanel({ analysis, active, learning }: Props) {
   const [recentTrades, setRecentTrades] = useState<JournalSignal[]>([]);
   const [openTrade, setOpenTrade] = useState<JournalSignal | null>(null);
+  const [teachTick, setTeachTick] = useState(0);
   const isBoom = analysis.symbol.startsWith("BOOM");
   const accent = isBoom ? "#0d9488" : "#2563eb";
 
@@ -118,7 +120,9 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
       .then((data) => {
         if (cancelled) return;
         const rows = (data.signals ?? []) as JournalSignal[];
-        const liveRows = rows.filter((s) => s.source === "live");
+        const liveRows = rows.filter(
+          (s) => s.source === "live" || s.source === "manual",
+        );
         const pool = liveRows.length ? liveRows : rows;
         setRecentTrades(pool.slice(0, 12));
         setOpenTrade(pool.find((s) => s.status === "pending") ?? null);
@@ -132,7 +136,7 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [active, analysis.symbol, analysis.updatedAt, learning?.updatedAt]);
+  }, [active, analysis.symbol, analysis.updatedAt, learning?.updatedAt, teachTick]);
 
   const monitorOpen = Boolean(openTrade) || showTrade;
 
@@ -192,7 +196,9 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
           <div className="trade-monitor-top">
             <span className="monitor-badge">
               {openTrade
-                ? "Open paper trade — learning"
+                ? openTrade.source === "manual"
+                  ? "Open teach trade — learning"
+                  : "Open paper trade — learning"
                 : patternStrong
                   ? `Hunt · pattern ${patternPct}%`
                   : `Hunt · edge ${edgePct}%`}
@@ -244,12 +250,17 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
       <div className="trade-log">
         <h3>Trades</h3>
         {recentTrades.length === 0 ? (
-          <p className="monitor-idle">No paper trades yet for this market.</p>
+          <p className="monitor-idle">
+            No paper trades yet — hunts open automatically, or use Teach below.
+          </p>
         ) : (
           <ul>
             {recentTrades.map((t) => (
               <li key={t.id} className={`trade-log-row status-${t.status}`}>
-                <span className="sig-status">{outcomeLabel(t)}</span>
+                <span className="sig-status">
+                  {outcomeLabel(t)}
+                  {t.source === "manual" ? " · Teach" : ""}
+                </span>
                 <span className="mono">
                   {fmtPrice(t.entryPrice)}
                   {t.exitPrice != null ? ` → ${fmtPrice(t.exitPrice)}` : ""}
@@ -272,6 +283,12 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
           </ul>
         )}
       </div>
+
+      <ManualTeachPanel
+        analysis={analysis}
+        symbol={analysis.symbol}
+        onRecorded={() => setTeachTick((n) => n + 1)}
+      />
     </section>
   );
 }

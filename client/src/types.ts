@@ -167,7 +167,7 @@ export interface JournalSignal {
   maePct?: number;
   outcome?: "spike" | "target" | "stopout" | "expired" | "open";
   note?: string;
-  source: "live" | "bootstrap";
+  source: "live" | "bootstrap" | "manual";
 }
 
 export interface KindStats {
