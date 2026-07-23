@@ -254,10 +254,227 @@ button {
   gap: 1rem;
 }
 
+.main-grid-solo {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 920px;
+}
+
 @media (min-width: 960px) {
-  .main-grid {
+  .main-grid:not(.main-grid-solo) {
     grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
     align-items: start;
+  }
+}
+
+.hero-compact h1 {
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+}
+
+.tabs button.hot-tab em,
+.mode-tabs button em {
+  color: #0f766e;
+}
+
+.edge-meter {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  font-family: var(--font-mono);
+}
+
+.edge-meter span {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+}
+
+.edge-meter strong {
+  font-size: 1.45rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.edge-meter em {
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.edge-meter.hot {
+  border-color: rgba(13, 148, 136, 0.45);
+  background: rgba(13, 148, 136, 0.1);
+}
+
+.edge-meter.hot strong {
+  color: #0f766e;
+}
+
+.monitor-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+}
+
+.monitor-stat {
+  padding: 0.55rem 0.6rem;
+  border-top: 2px solid var(--line);
+}
+
+.monitor-stat span {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  margin-bottom: 0.2rem;
+}
+
+.monitor-stat strong {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.monitor-stat.win strong {
+  color: #0f766e;
+}
+
+.monitor-stat.loss strong {
+  color: #c2410c;
+}
+
+.monitor-stat.hot strong {
+  color: #0f766e;
+}
+
+.trade-monitor {
+  margin-top: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border-left: 3px solid #0d9488;
+  background: linear-gradient(
+    90deg,
+    rgba(13, 148, 136, 0.1),
+    rgba(13, 148, 136, 0.02)
+  );
+  animation: rise 0.45s ease both;
+}
+
+.trade-monitor-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.monitor-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+
+.trade-levels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.trade-level span {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.trade-level strong {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.monitor-idle {
+  margin: 0.85rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.trade-log {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+}
+
+.trade-log h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.trade-log ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trade-log-row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1.2fr) 5rem minmax(0, 0.9fr);
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(15, 42, 58, 0.06);
+  font-size: 0.82rem;
+}
+
+.trade-log-row .mono {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.trade-log-row .note {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.trade-log-row.status-win .sig-status {
+  color: #0f766e;
+}
+
+.trade-log-row.status-loss .sig-status,
+.trade-log-row.status-expired .sig-status {
+  color: #c2410c;
+}
+
+.trade-log-row.status-pending .sig-status {
+  color: #1d4ed8;
+}
+
+@media (max-width: 640px) {
+  .monitor-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trade-levels {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-log-row {
+    grid-template-columns: 3.5rem minmax(0, 1fr) 4.5rem;
+  }
+
+  .trade-log-row .note {
+    display: none;
   }
 }
 
