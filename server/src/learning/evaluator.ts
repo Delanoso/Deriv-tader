@@ -150,7 +150,7 @@ export function resolveSpikeHuntPath(
       hitTarget: false,
       hitInvalidation: true,
       outcome: "stopout",
-      note: "Stopout — invalidation printed before spike/target",
+      note: resolveNote(signal, "Stopout — invalidation printed before spike/target"),
       ...pathStats,
     };
   }
@@ -165,14 +165,24 @@ export function resolveSpikeHuntPath(
       hitTarget: hitTarget || undefined,
       hitInvalidation: false,
       outcome: hitSpike ? "spike" : "target",
-      note: hitSpike
-        ? "Spike printed — hunt succeeded"
-        : "Hit spike target before invalidation",
+      note: resolveNote(
+        signal,
+        hitSpike
+          ? "Spike printed — hunt succeeded"
+          : "Hit spike target before invalidation",
+      ),
       ...pathStats,
     };
   }
 
   return null;
+}
+
+function resolveNote(signal: JournalSignal, outcomeNote: string): string {
+  if (signal.source === "manual" && signal.note?.trim()) {
+    return `${signal.note.trim()} · ${outcomeNote}`;
+  }
+  return outcomeNote;
 }
 
 /**
