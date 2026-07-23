@@ -3,6 +3,8 @@ import { buildSpikeForecast } from "./learning/hazard.js";
 import { blendConfidence } from "./learning/journal.js";
 import type { KillStatus } from "./learning/killRules.js";
 import { applyLevelHint, type LevelHint } from "./learning/levelTune.js";
+import type { EntryPolicyDecision } from "./learning/entryPolicy.js";
+import { predictorMode } from "./learning/entryPolicy.js";
 import type { RegimePreference } from "./learning/regimePrefs.js";
 import { ageRegimeFromRatio } from "./learning/regimes.js";
 import { detectSpikes, interSpikeStats } from "./spikeDetector.js";
@@ -46,6 +48,7 @@ export function analyzeSymbol(
     levelHint?: LevelHint | null;
     focusWeight?: number;
     focusNote?: string | null;
+    entryPolicy?: EntryPolicyDecision | null;
   },
 ): SymbolAnalysis {
   const candles = buildCandlesFromTicks(ticks, 60);
@@ -88,6 +91,7 @@ export function analyzeSymbol(
       regimePref: regimePref ?? null,
       focusWeight: opts?.focusWeight ?? 1,
       focusNote: opts?.focusNote ?? null,
+      entryPolicy: opts?.entryPolicy ?? null,
     },
     calibration?.[symbol],
   );
@@ -165,9 +169,9 @@ function buildSpikePlan(ctx: {
 
   const baseTarget = isBoom ? price * (1 + medMag) : price * (1 - medMag);
   const baseStretch = isBoom ? price * (1 + stretchMag) : price * (1 - stretchMag);
-  const baseInvalidation = isBoom
-    ? Math.min(price - atr, price * (1 - medMag * 0.35))
-    : Math.max(price + atr, price * (1 + medMag * 0.35));
+  const invalidation = isBoom
+    ? Math.min(price - atr * 1.35, price * (1 - medMag * 0.55))
+    : Math.max(price + atr * 1.35, price * (1 + medMag * 0.55));
 
   const tuned = applyLevelHint(
     price,
@@ -175,7 +179,7 @@ function buildSpikePlan(ctx: {
     {
       spikeTarget: baseTarget,
       stretch: baseStretch,
-      invalidation: baseInvalidation,
+      invalidation,
     },
     ctx.levelHint ?? undefined,
   );
@@ -224,6 +228,7 @@ function scoreOpportunity(
     regimePref?: RegimePreference | null;
     focusWeight?: number;
     focusNote?: string | null;
+    entryPolicy?: EntryPolicyDecision | null;
   },
   learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
 ): TradeOpportunity {
@@ -240,18 +245,24 @@ function scoreOpportunity(
   let action = "Waiting — not in a spike-hunt window";
   let riskNote =
     "We target spikes only. Quiet drift between spikes is ignored on purpose.";
+  let edgeScore = 0.3;
+  let policyAllow: boolean | undefined;
+  let policyReasons: string[] | undefined;
 
   const mean = ctx.meanInterSpike ?? ADVERTISED_INTERVAL;
   const since = ctx.ticksSinceLastSpike;
   const p500 = horizonOf(ctx.forecast, 500);
   const p1000 = horizonOf(ctx.forecast, 1000);
+  const predMode = predictorMode();
+  // Predictor mode prefers quality windows; learn-max opens earlier.
   const learnMax =
-    process.env.PAPER_LEARN_MAX == null ||
-    process.env.PAPER_LEARN_MAX === "" ||
-    (process.env.PAPER_LEARN_MAX !== "0" &&
-      process.env.PAPER_LEARN_MAX !== "false");
+    !predMode &&
+    (process.env.PAPER_LEARN_MAX == null ||
+      process.env.PAPER_LEARN_MAX === "" ||
+      (process.env.PAPER_LEARN_MAX !== "0" &&
+        process.env.PAPER_LEARN_MAX !== "false"));
   const watchAgeRatio = Number(
-    process.env.SPIKE_WATCH_AGE_RATIO || (learnMax ? 0.28 : 0.35),
+    process.env.SPIKE_WATCH_AGE_RATIO || (learnMax ? 0.28 : predMode ? 0.4 : 0.35),
   );
 
   if (ctx.kill.killed) {
@@ -276,7 +287,6 @@ function scoreOpportunity(
     action = spikeAction;
     const ratio = since / mean;
 
-    // Blend age ratio with empirical short-horizon probability when available.
     const empiric = p500?.probability ?? p1000?.probability;
     if (empiric != null) {
       confidence = Math.min(0.55, 0.22 + empiric * 0.45 + Math.min(ratio, 1.5) * 0.05);
@@ -321,14 +331,37 @@ function scoreOpportunity(
       if (ctx.focusNote) rationale.push(ctx.focusNote);
     }
 
-    riskNote =
-      "Spike timing is stochastic. Size from horizon odds, not hope.";
+    // Predictor policy: only keep spike_watch when learned pocket has edge.
+    if (predMode && ctx.entryPolicy) {
+      policyAllow = ctx.entryPolicy.allow;
+      policyReasons = ctx.entryPolicy.reasons;
+      edgeScore = ctx.entryPolicy.edgeScore;
+      for (const r of ctx.entryPolicy.reasons.slice(0, 4)) {
+        rationale.push(r);
+      }
+      if (!ctx.entryPolicy.allow) {
+        kind = "stand_aside";
+        bias = "neutral";
+        action = "No learned edge — stand aside";
+        confidence = Math.min(confidence, 0.22);
+        riskNote =
+          "Predictor mode only signals when live age×RSI / age pockets show non-negative expectancy.";
+      } else {
+        confidence = Math.min(0.72, confidence * (0.75 + edgeScore * 0.5));
+        action = `${spikeAction} · edge ${(edgeScore * 100).toFixed(0)}%`;
+        riskNote =
+          "Learned-pocket hunt. Spikes remain stochastic — size small and respect the stop.";
+      }
+    } else {
+      riskNote =
+        "Spike timing is stochastic. Size from horizon odds, not hope.";
+    }
   } else {
     action = "Too soon after last spike — skip quiet candles";
     confidence = 0.2;
     rationale.push(
       since != null
-        ? `Only ${since} ticks since last spike (need ~${Math.round(mean * 0.35)}+ to open a hunt).`
+        ? `Only ${since} ticks since last spike (need ~${Math.round(mean * watchAgeRatio)}+ to open a hunt).`
         : "Spike timing baseline unavailable.",
     );
     if (p500?.probability != null) {
@@ -336,7 +369,7 @@ function scoreOpportunity(
     }
   }
 
-  const raw = Number(Math.max(0.08, Math.min(0.6, confidence)).toFixed(2));
+  const raw = Number(Math.max(0.08, Math.min(0.72, confidence)).toFixed(2));
   let calibrated = raw;
   if (kind === "spike_watch") {
     const learned = learnedRates?.spike_watch;
@@ -344,6 +377,11 @@ function scoreOpportunity(
       calibrated = blendConfidence(raw, learned, true);
       rationale.push(
         `Learning blend (spike hunts): ~${(learned * 100).toFixed(0)}% → calibrated ${Math.round(calibrated * 100)}%.`,
+      );
+    }
+    if (predMode && edgeScore > 0) {
+      calibrated = Number(
+        Math.min(0.78, calibrated * (0.7 + edgeScore * 0.45)).toFixed(2),
       );
     }
   }
@@ -356,6 +394,9 @@ function scoreOpportunity(
     calibratedConfidence: calibrated,
     rationale,
     riskNote,
+    edgeScore,
+    policyAllow,
+    policyReasons,
   };
 }
 

@@ -23,6 +23,12 @@ export function analyzeVol(
   symbol: VolSymbolId,
   ticks: VolTick[],
   calibrated?: Partial<Record<"up" | "down", number>>,
+  focusBias?: Partial<
+    Record<
+      "up" | "down",
+      { n: number; expectancyNetPct: number | null; deprioritize: boolean }
+    >
+  >,
 ): VolAnalysis {
   const candles = buildCandlesFromTicks(ticks as Tick[], VOL_CANDLE_SEC);
   const closes = candles.map((c) => c.close);
@@ -47,6 +53,7 @@ export function analyzeVol(
     swingLow,
     lastEpoch: last?.epoch ?? null,
     calibrated,
+    focusBias,
   });
 
   return {
@@ -87,6 +94,12 @@ function scoreVolDirection(ctx: {
   swingLow: number | null;
   lastEpoch: number | null;
   calibrated?: Partial<Record<"up" | "down", number>>;
+  focusBias?: Partial<
+    Record<
+      "up" | "down",
+      { n: number; expectancyNetPct: number | null; deprioritize: boolean }
+    >
+  >;
 }): VolPrediction {
   const rationale: string[] = [];
   let score = 0;
@@ -145,8 +158,10 @@ function scoreVolDirection(ctx: {
   }
 
   let bias: VolBias = "neutral";
-  if (score >= 0.75) bias = "up";
-  else if (score <= -0.75) bias = "down";
+  // Stricter confluence for predictor reliability.
+  const need = Number(process.env.VOL_SCORE_THRESHOLD || 1.25);
+  if (score >= need) bias = "up";
+  else if (score <= -need) bias = "down";
 
   const atr = ctx.atr14;
   const price = ctx.price;
@@ -154,37 +169,40 @@ function scoreVolDirection(ctx: {
   let stretch: number;
   let invalidation: number;
   let method = "ATR projection";
+  // Wider stops — live book was stopout-dominated at 1.2 ATR.
+  const stopAtr = Number(process.env.VOL_STOP_ATR || 1.85);
+  const targetAtr = Number(process.env.VOL_TARGET_ATR || 2.6);
+  const stretchAtr = Number(process.env.VOL_STRETCH_ATR || 4.0);
 
   if (bias === "up") {
-    // Wider 1m levels so 3m+ holds have room to work.
-    const atrTarget = price + atr * 2.2;
-    const atrStretch = price + atr * 3.5;
+    const atrTarget = price + atr * targetAtr;
+    const atrStretch = price + atr * stretchAtr;
     const struct =
       ctx.swingHigh != null && ctx.swingHigh > price ? ctx.swingHigh : null;
     target = struct != null && struct < atrTarget ? struct : atrTarget;
     stretch = Math.max(atrStretch, struct ?? atrStretch);
     invalidation =
       ctx.swingLow != null && ctx.swingLow < price
-        ? Math.max(ctx.swingLow, price - atr * 1.2)
-        : price - atr * 1.2;
+        ? Math.max(ctx.swingLow, price - atr * stopAtr)
+        : price - atr * stopAtr;
     if (struct != null && struct < atrTarget) method = "1m swing high + ATR stretch";
-    else method = "1m ATR projection";
+    else method = "1m ATR projection (wide stop)";
     rationale.push(
       `1m upside: target ${target.toFixed(5)} (~${pct(price, target)}%), stretch ${stretch.toFixed(5)} · hold ≥${VOL_MIN_HOLD_TICKS / 60}m.`,
     );
   } else if (bias === "down") {
-    const atrTarget = price - atr * 2.2;
-    const atrStretch = price - atr * 3.5;
+    const atrTarget = price - atr * targetAtr;
+    const atrStretch = price - atr * stretchAtr;
     const struct =
       ctx.swingLow != null && ctx.swingLow < price ? ctx.swingLow : null;
     target = struct != null && struct > atrTarget ? struct : atrTarget;
     stretch = Math.min(atrStretch, struct ?? atrStretch);
     invalidation =
       ctx.swingHigh != null && ctx.swingHigh > price
-        ? Math.min(ctx.swingHigh, price + atr * 1.2)
-        : price + atr * 1.2;
+        ? Math.min(ctx.swingHigh, price + atr * stopAtr)
+        : price + atr * stopAtr;
     if (struct != null && struct > atrTarget) method = "1m swing low + ATR stretch";
-    else method = "1m ATR projection";
+    else method = "1m ATR projection (wide stop)";
     rationale.push(
       `1m downside: target ${target.toFixed(5)} (~${pct(price, target)}%), stretch ${stretch.toFixed(5)} · hold ≥${VOL_MIN_HOLD_TICKS / 60}m.`,
     );
@@ -195,8 +213,24 @@ function scoreVolDirection(ctx: {
     rationale.push("No clear directional edge — stand aside.");
   }
 
+  // If learning says this bias is toxic, stand aside.
+  const focus = ctx.focusBias;
+  let vetoed = false;
+  if (
+    (bias === "up" || bias === "down") &&
+    focus?.[bias]?.deprioritize &&
+    (focus[bias]?.n ?? 0) >= 40 &&
+    (focus[bias]?.expectancyNetPct ?? 0) < -0.02
+  ) {
+    rationale.push(
+      `Learned veto: ${bias} calls exp ${focus[bias]!.expectancyNetPct!.toFixed(3)}% on n=${focus[bias]!.n}`,
+    );
+    bias = "neutral";
+    vetoed = true;
+  }
+
   let confidence = Math.min(0.62, 0.28 + Math.abs(score) * 0.12);
-  if (bias === "neutral") confidence = 0.2;
+  if (bias === "neutral") confidence = vetoed ? 0.18 : 0.2;
 
   const raw = Number(confidence.toFixed(2));
   let calibrated = raw;

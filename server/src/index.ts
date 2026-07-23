@@ -15,6 +15,10 @@ import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
 import { buildRegime, ageRegimeFromRatio } from "./learning/regimes.js";
 import { passSpikeEntryGate, paperLearnMax } from "./learning/entryGate.js";
+import {
+  evaluateEntryPolicy,
+  predictorMode,
+} from "./learning/entryPolicy.js";
 import { combineFocusWeight } from "./learning/focusWeights.js";
 import {
   getGateTelemetry,
@@ -120,10 +124,11 @@ function processSymbol(symbol: SymbolId): void {
   refreshLearning();
   const spikeStats = learning.live.bySymbol[symbol]?.byKind.spike_watch;
   const killRaw = evaluateKillRule(spikeStats);
-  // Learn-max: keep kill as a soft warning so paper hunts still journal.
-  const kill = paperLearnMax()
-    ? { ...killRaw, killed: false, warning: killRaw.killed || killRaw.warning }
-    : killRaw;
+  // Predictor mode: honor kill. Learn-max: soft warning only.
+  const kill =
+    predictorMode() || !paperLearnMax()
+      ? killRaw
+      : { ...killRaw, killed: false, warning: killRaw.killed || killRaw.warning };
 
   const liveRegs = learning.regimes?.[symbol];
   const seedRegs = learning.seedRegimes?.[symbol];
@@ -138,6 +143,19 @@ function processSymbol(symbol: SymbolId): void {
   const ageFocus = learning.focus?.byAgeRegime?.[symbol]?.[age];
   const combinedFocus = combineFocusWeight(symbolFocus, ageFocus);
 
+  // Provisional RSI from previous analysis; analyzer will recompute.
+  const rsi14 = prev?.indicators.rsi14 ?? null;
+  const p500 =
+    prev?.forecast?.horizons.find((h) => h.horizonTicks === 500)?.probability ??
+    null;
+  const entryPolicy = evaluateEntryPolicy({
+    symbol,
+    ageRatio,
+    rsi14,
+    pSpike500: p500,
+    learning,
+  });
+
   const analysis = analyzeSymbol(
     symbol,
     ticks,
@@ -145,21 +163,56 @@ function processSymbol(symbol: SymbolId): void {
     kill,
     regimePref,
     {
-      levelHint: learning.levelHints?.[symbol] ?? null,
+      levelHint: (learning.levelHints?.[symbol] as import("./learning/levelTune.js").LevelHint | undefined) ?? null,
       focusWeight: combinedFocus.weight,
       focusNote: combinedFocus.note,
+      entryPolicy,
     },
   );
-  analyses[symbol] = analysis;
+  // Re-evaluate policy with fresh RSI / forecast from this analysis.
+  const freshAgeRatio =
+    analysis.reliability.meanInterSpikeTicks != null &&
+    analysis.reliability.meanInterSpikeTicks > 0 &&
+    analysis.ticksSinceLastSpike != null
+      ? analysis.ticksSinceLastSpike / analysis.reliability.meanInterSpikeTicks
+      : null;
+  const freshPolicy = evaluateEntryPolicy({
+    symbol,
+    ageRatio: freshAgeRatio,
+    rsi14: analysis.indicators.rsi14,
+    pSpike500:
+      analysis.forecast?.horizons.find((h) => h.horizonTicks === 500)
+        ?.probability ?? null,
+    learning,
+  });
+  // If policy flipped after fresh indicators, re-score once.
+  if (freshPolicy.allow !== entryPolicy.allow || freshPolicy.edgeScore !== entryPolicy.edgeScore) {
+    analyses[symbol] = analyzeSymbol(
+      symbol,
+      ticks,
+      learning.calibrated,
+      kill,
+      regimePref,
+      {
+        levelHint: (learning.levelHints?.[symbol] as import("./learning/levelTune.js").LevelHint | undefined) ?? null,
+        focusWeight: combinedFocus.weight,
+        focusNote: combinedFocus.note,
+        entryPolicy: freshPolicy,
+      },
+    );
+  } else {
+    analyses[symbol] = analysis;
+  }
 
-  const opp = analysis.opportunity;
-  // Journal spike hunts only when entry gate passes — quality over quantity.
+  const final = analyses[symbol]!;
+  const opp = final.opportunity;
+  // Journal only real predictor hunts (policy-allowed spike_watch).
   if (
     opp.kind === "spike_watch" &&
-    analysis.lastQuote != null &&
-    analysis.lastEpoch != null
+    final.lastQuote != null &&
+    final.lastEpoch != null
   ) {
-    const gate = passSpikeEntryGate(analysis, {
+    const gate = passSpikeEntryGate(final, {
       liveRegimes: liveRegs,
       seedRegimes: seedRegs,
       symbolFocus,
@@ -171,17 +224,17 @@ function processSymbol(symbol: SymbolId): void {
         kind: "spike_watch",
         bias: opp.bias,
         confidence: opp.calibratedConfidence ?? opp.confidence,
-        entryPrice: analysis.lastQuote,
-        entryEpoch: analysis.lastEpoch,
+        entryPrice: final.lastQuote,
+        entryEpoch: final.lastEpoch,
         entryTickIndex: Math.max(0, ticks.length - 1),
         horizonTicks: horizonFor(
           "spike_watch",
-          analysis.reliability.meanInterSpikeTicks,
+          final.reliability.meanInterSpikeTicks,
         ),
-        target: analysis.spikePlan?.spikeTarget,
-        stretch: analysis.spikePlan?.stretch,
-        invalidation: analysis.spikePlan?.invalidation,
-        regime: buildRegime(analysis),
+        target: final.spikePlan?.spikeTarget,
+        stretch: final.spikePlan?.stretch,
+        invalidation: final.spikePlan?.invalidation,
+        regime: buildRegime(final),
       });
       if (row) recordGateAllow();
       refreshLearning();
@@ -212,7 +265,28 @@ function processVol(symbol: VolSymbolId): void {
   }
 
   refreshVolLearning();
-  const analysis = analyzeVol(symbol, ticks, volLearning.calibrated);
+  const focusBias = {
+    up: volLearning.focus?.byBias?.up
+      ? {
+          n: volLearning.focus.byBias.up.n,
+          expectancyNetPct: volLearning.focus.byBias.up.expectancyNetPct,
+          deprioritize: volLearning.focus.byBias.up.deprioritize,
+        }
+      : undefined,
+    down: volLearning.focus?.byBias?.down
+      ? {
+          n: volLearning.focus.byBias.down.n,
+          expectancyNetPct: volLearning.focus.byBias.down.expectancyNetPct,
+          deprioritize: volLearning.focus.byBias.down.deprioritize,
+        }
+      : undefined,
+  };
+  const analysis = analyzeVol(
+    symbol,
+    ticks,
+    volLearning.calibrated,
+    focusBias,
+  );
   volAnalysis = analysis;
 
   const pred = analysis.prediction;

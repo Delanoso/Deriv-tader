@@ -9,22 +9,26 @@ export interface LevelHint {
   basedOnN: number;
   avgMfePct: number;
   avgMaePct: number;
-  /** Wins' typical MAE before success — stop should sit beyond this. */
   winMaeP75: number | null;
-  /** Losses' typical MFE before fail — target shouldn't sit beyond early noise. */
+  winMaeP90: number | null;
+  winMfeP50: number | null;
   lossMfeP75: number | null;
   note: string;
 }
 
 function quantile(sorted: number[], q: number): number | null {
   if (!sorted.length) return null;
-  const i = Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))));
+  const i = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.floor(q * (sorted.length - 1))),
+  );
   return sorted[i];
 }
 
 /**
- * Learn stop/target distances from live MFE/MAE path stats.
- * Stop ≈ beyond typical adverse on wins; target ≈ inside typical favorable on wins.
+ * Learn stop/target from live paths.
+ * Critical fix vs v1: stops were tiny (~0.05%) and caused mass stopouts.
+ * Now: stop beyond win MAE p90 with ATR floor; target from win MFE median.
  */
 export function buildLevelHints(
   liveSignals: JournalSignal[],
@@ -32,6 +36,10 @@ export function buildLevelHints(
   minN = Number(process.env.LEVEL_TUNE_MIN_N || 8),
 ): Partial<Record<SymbolId, LevelHint>> {
   const out: Partial<Record<SymbolId, LevelHint>> = {};
+  const stopFloor = Number(process.env.LEVEL_STOP_FLOOR_PCT || 0.15);
+  const stopCeil = Number(process.env.LEVEL_STOP_CEIL_PCT || 1.25);
+  const targetFloor = Number(process.env.LEVEL_TARGET_FLOOR_PCT || 0.12);
+  const targetCeil = Number(process.env.LEVEL_TARGET_CEIL_PCT || 2.5);
 
   for (const symbol of symbols) {
     const rows = liveSignals.filter(
@@ -49,32 +57,32 @@ export function buildLevelHints(
     const avgMfe = mfes.reduce((a, b) => a + b, 0) / mfes.length;
     const avgMae = maes.reduce((a, b) => a + b, 0) / maes.length;
 
-    const winMaes = rows
-      .filter((s) => s.status === "win")
-      .map((s) => s.maePct!)
-      .sort((a, b) => a - b);
+    const wins = rows.filter((s) => s.status === "win");
+    const winMaes = wins.map((s) => s.maePct!).sort((a, b) => a - b);
+    const winMfes = wins.map((s) => s.mfePct!).sort((a, b) => a - b);
     const lossMfes = rows
       .filter((s) => s.status === "loss")
       .map((s) => s.mfePct!)
       .sort((a, b) => a - b);
 
     const winMaeP75 = quantile(winMaes, 0.75);
+    const winMaeP90 = quantile(winMaes, 0.9);
+    const winMfeP50 = quantile(winMfes, 0.5);
     const lossMfeP75 = quantile(lossMfes, 0.75);
-    const mfeP50 = quantile(mfes, 0.5) ?? avgMfe;
 
-    // Stop: a bit beyond what winning paths typically endure.
+    // Wider stop: past what most winning paths survive.
+    const rawStop = (winMaeP90 ?? winMaeP75 ?? avgMae) * 1.35 + 0.02;
     const stopPct = Number(
-      Math.max(
-        0.02,
-        Math.min(2.5, (winMaeP75 ?? avgMae) * 1.15 + 0.01),
-      ).toFixed(4),
+      Math.max(stopFloor, Math.min(stopCeil, rawStop)).toFixed(4),
     );
-    // Target: inside median MFE so wins can actually print; avoid chasing stretch.
+
+    // Target: capture typical win MFE, stay above noise / loss MFE.
+    const rawTarget = Math.max(
+      winMfeP50 ?? avgMfe * 0.9,
+      (lossMfeP75 ?? 0) * 1.1 + 0.04,
+    );
     const targetPct = Number(
-      Math.max(
-        0.03,
-        Math.min(3.5, Math.min(mfeP50 * 0.85, (lossMfeP75 ?? mfeP50) * 0.95 + 0.02)),
-      ).toFixed(4),
+      Math.max(targetFloor, Math.min(targetCeil, rawTarget)).toFixed(4),
     );
 
     out[symbol] = {
@@ -85,15 +93,17 @@ export function buildLevelHints(
       avgMfePct: Number(avgMfe.toFixed(4)),
       avgMaePct: Number(avgMae.toFixed(4)),
       winMaeP75: winMaeP75 != null ? Number(winMaeP75.toFixed(4)) : null,
+      winMaeP90: winMaeP90 != null ? Number(winMaeP90.toFixed(4)) : null,
+      winMfeP50: winMfeP50 != null ? Number(winMfeP50.toFixed(4)) : null,
       lossMfeP75: lossMfeP75 != null ? Number(lossMfeP75.toFixed(4)) : null,
-      note: `From ${rows.length} live paths: stop≈${stopPct}% · target≈${targetPct}% (MFE ${avgMfe.toFixed(3)} / MAE ${avgMae.toFixed(3)})`,
+      note: `Wide-stop tune n=${rows.length}: stop≈${stopPct}% (win MAE p90) · target≈${targetPct}% (win MFE p50)`,
     };
   }
 
   return out;
 }
 
-/** Blend ATR/mag plan with learned % distances when hints exist. */
+/** Blend ATR/mag plan with learned % distances — prefer wider learned stops. */
 export function applyLevelHint(
   entry: number,
   isBoom: boolean,
@@ -110,19 +120,23 @@ export function applyLevelHint(
   const stop = isBoom
     ? entry * (1 - hint.stopPct / 100)
     : entry * (1 + hint.stopPct / 100);
-  // Keep stretch a bit beyond learned target.
   const stretch = isBoom
-    ? entry * (1 + (hint.targetPct * 1.45) / 100)
-    : entry * (1 - (hint.targetPct * 1.45) / 100);
+    ? entry * (1 + (hint.targetPct * 1.55) / 100)
+    : entry * (1 - (hint.targetPct * 1.55) / 100);
 
-  // Soft blend 60% learned / 40% structural so we don't overfit tiny books.
-  const mix = (learned: number, structural: number) =>
-    Number((learned * 0.6 + structural * 0.4).toFixed(5));
+  // Prefer learned stop (wider); blend target more evenly with structural spike mag.
+  const mixStop = (learned: number, structural: number) => {
+    // Pick the wider stop (further from entry).
+    if (isBoom) return Number(Math.min(learned, structural).toFixed(5));
+    return Number(Math.max(learned, structural).toFixed(5));
+  };
+  const mixTarget = (learned: number, structural: number) =>
+    Number((learned * 0.55 + structural * 0.45).toFixed(5));
 
   return {
-    spikeTarget: mix(target, base.spikeTarget),
-    stretch: mix(stretch, base.stretch),
-    invalidation: mix(stop, base.invalidation),
-    methodSuffix: ` · MFE/MAE tune n=${hint.basedOnN}`,
+    spikeTarget: mixTarget(target, base.spikeTarget),
+    stretch: mixTarget(stretch, base.stretch),
+    invalidation: mixStop(stop, base.invalidation),
+    methodSuffix: ` · wide-stop tune n=${hint.basedOnN}`,
   };
 }

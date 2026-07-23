@@ -44,6 +44,11 @@ export interface TradeOpportunity {
   calibratedConfidence?: number;
   rationale: string[];
   riskNote: string;
+  /** Predictor-mode edge score 0–1 from learned pockets. */
+  edgeScore?: number;
+  /** Whether learned entry policy allows a hunt. */
+  policyAllow?: boolean;
+  policyReasons?: string[];
 }
 
 export interface HorizonProb {
@@ -237,6 +242,8 @@ export interface LevelHintView {
   avgMfePct: number;
   avgMaePct: number;
   winMaeP75: number | null;
+  winMaeP90: number | null;
+  winMfeP50: number | null;
   lossMfeP75: number | null;
   note: string;
 }

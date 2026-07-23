@@ -82,6 +82,7 @@ test("buildLevelHints suggests stop and target from paths", () => {
   assert.ok(hints.BOOM1000);
   assert.ok(hints.BOOM1000!.stopPct > 0);
   assert.ok(hints.BOOM1000!.targetPct > 0);
+  assert.ok(hints.BOOM1000!.stopPct >= 0.15);
 
   const applied = applyLevelHint(
     100,
@@ -89,7 +90,7 @@ test("buildLevelHints suggests stop and target from paths", () => {
     { spikeTarget: 101, stretch: 102, invalidation: 99 },
     hints.BOOM1000,
   );
-  assert.ok(applied.methodSuffix.includes("MFE/MAE"));
+  assert.ok(applied.methodSuffix.includes("wide-stop"));
 });
 
 test("buildOutcomeBreakdown flags stopout-heavy losses", () => {

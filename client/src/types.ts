@@ -42,6 +42,9 @@ export interface TradeOpportunity {
   calibratedConfidence?: number;
   rationale: string[];
   riskNote: string;
+  edgeScore?: number;
+  policyAllow?: boolean;
+  policyReasons?: string[];
 }
 
 export interface HorizonProb {

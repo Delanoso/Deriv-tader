@@ -6,6 +6,12 @@ export interface VolEntryGateResult {
 }
 
 function paperLearnMax(): boolean {
+  if (process.env.PREDICTOR_MODE === "1" || process.env.PREDICTOR_MODE === "true") {
+    if (process.env.PAPER_LEARN_MAX === "1" || process.env.PAPER_LEARN_MAX === "true") {
+      return true;
+    }
+    return false;
+  }
   const v = process.env.PAPER_LEARN_MAX;
   if (v == null || v === "") return true;
   return v !== "0" && v !== "false";
@@ -25,19 +31,19 @@ export function passVolEntryGate(
   const learnMax = paperLearnMax();
   const conf = pred.calibratedConfidence ?? pred.confidence;
   const minConf = Number(
-    process.env.VOL_ENTRY_MIN_CONF || (learnMax ? 0.18 : 0.28),
+    process.env.VOL_ENTRY_MIN_CONF || (learnMax ? 0.18 : 0.32),
   );
   if (conf < minConf) {
     reasons.push(`Confidence ${conf.toFixed(2)} < ${minConf}`);
   }
 
-  // In learn-max mode, still paper-trade weak biases so we keep gathering paths.
-  // Focus weights already dampen confidence; don't hard-block.
+  const st = learning.byBias[bias];
+  const n = st.winsAfterCost + st.lossesAfterCost;
+  const exp = st.decayExpectancyNetPct ?? st.expectancyNetPct;
+
+  // Predictor / quality mode: block negative-expectancy bias with enough samples.
   if (!learnMax) {
-    const st = learning.byBias[bias];
-    const n = st.winsAfterCost + st.lossesAfterCost;
-    const exp = st.decayExpectancyNetPct ?? st.expectancyNetPct;
-    if (n >= 8 && exp != null && exp < 0) {
+    if (n >= 20 && exp != null && exp < 0) {
       reasons.push(
         `${bias} bias: negative expectancy (${exp.toFixed(3)}%) on n=${n}`,
       );

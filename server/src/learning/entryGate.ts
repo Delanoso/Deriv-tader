@@ -16,8 +16,15 @@ export interface EntryGateContext {
   ageFocus?: FocusWeightView;
 }
 
-/** Maximize paper-journal volume for learning (default on). */
+/** Maximize paper-journal volume for learning. Off when PREDICTOR_MODE is on. */
 export function paperLearnMax(): boolean {
+  if (process.env.PREDICTOR_MODE === "1" || process.env.PREDICTOR_MODE === "true") {
+    // Predictor mode wins unless explicitly forcing learn-max.
+    if (process.env.PAPER_LEARN_MAX === "1" || process.env.PAPER_LEARN_MAX === "true") {
+      return true;
+    }
+    return false;
+  }
   const v = process.env.PAPER_LEARN_MAX;
   if (v == null || v === "") return true;
   return v !== "0" && v !== "false";

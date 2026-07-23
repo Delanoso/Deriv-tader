@@ -67,8 +67,8 @@ Open `/calculator` — Deriv **Multipliers** estimate: stake × multiplier × (�
 7. Kill rule: stand aside on weak after-cost WR **or** negative expectancy after enough samples
 8. Regime insights: compare early/mid/late/overdue expectancy (live when ready, else seed) and soft-bias confidence toward stronger age bands
 9. Entry gate: quality filter + optional hard regime/focus filters with allow/reject telemetry
-10. **Paper learn-max (default on)**: soft gates, shorter cooldowns, up to 3 concurrent paper hunts/symbol, kill as warning only — maximize journal samples
-11. Level tune: learn stop/target % from live MFE/MAE and blend into spike plans
+10. **Predictor mode (default)**: only signal when live age×RSI / age pockets have non-negative expectancy; wider stops from win MAE p90; Vol confluence + learned bias veto
+11. Focus weights, outcome breakdown, walk-forward holdout, MFE/MAE level tune still feed the policy
 12. Outcome breakdown: spike / target / stop / expiry mix + actionable notes
 13. Age × RSI cross regimes when cells have enough live mass
 14. Walk-forward holdout: newest live fold excluded from calibration; train vs holdout reported

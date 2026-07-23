@@ -141,9 +141,17 @@ export function SymbolPanel({ analysis, active }: Props) {
           <span className="confidence" style={{ ["--p" as string]: `${confPct}%` }}>
             {confPct}% calibrated
             {confPct !== rawPct ? ` · raw ${rawPct}%` : ""}
+            {analysis.opportunity.edgeScore != null
+              ? ` · edge ${Math.round(analysis.opportunity.edgeScore * 100)}%`
+              : ""}
           </span>
         </div>
         <p className="action">{analysis.opportunity.action}</p>
+        {analysis.opportunity.policyAllow === false && (
+          <p className="risk policy-block">
+            Predictor stand-aside — no learned edge pocket right now.
+          </p>
+        )}
         <ul className="rationale">
           {analysis.opportunity.rationale.map((line) => (
             <li key={line}>{line}</li>
