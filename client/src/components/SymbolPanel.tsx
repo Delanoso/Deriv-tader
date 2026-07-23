@@ -41,6 +41,13 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
   const wins = symbolStats?.winsAfterCost ?? symbolStats?.wins ?? 0;
   const losses = symbolStats?.lossesAfterCost ?? symbolStats?.losses ?? 0;
   const decided = wins + losses;
+  const patternBoard =
+    learning?.patternStats?.bySymbol?.[analysis.symbol]?.withPattern;
+  const patternWr =
+    patternBoard?.winRateAfterCost ?? patternBoard?.winRate ?? null;
+  const patternN =
+    (patternBoard?.winsAfterCost ?? patternBoard?.wins ?? 0) +
+    (patternBoard?.lossesAfterCost ?? patternBoard?.losses ?? 0);
 
   const levels = useMemo((): ChartLevel[] => {
     const out: ChartLevel[] = [];
@@ -189,6 +196,16 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
           value={`${patternStrong ? patternPct : edgePct}%`}
           tone={hunting || edge >= MONITOR_EDGE || patternStrong ? "hot" : undefined}
         />
+        <Stat
+          label="Pattern WR"
+          value={
+            patternWr != null && patternN > 0
+              ? `${(patternWr * 100).toFixed(0)}%`
+              : "—"
+          }
+          tone={patternWr != null && patternWr >= 0.35 ? "win" : undefined}
+        />
+        <Stat label="Pattern n" value={patternN > 0 ? String(patternN) : "—"} />
       </div>
 
       {monitorOpen ? (
@@ -260,6 +277,7 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
                 <span className="sig-status">
                   {outcomeLabel(t)}
                   {t.source === "manual" ? " · Teach" : ""}
+                  {t.pattern?.nearShelf ? " · Base" : ""}
                 </span>
                 <span className="mono">
                   {fmtPrice(t.entryPrice)}

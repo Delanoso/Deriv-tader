@@ -18,18 +18,21 @@ module.exports = {
         KILL_MIN_SAMPLES: "50",
         KILL_MIN_WR: "0.45",
         KILL_MIN_EXPECTANCY: "0",
-        // Learn-max: journal every spike-hunt window to gather outcomes.
-        // Keep PREDICTOR_MODE on for edge scoring, but do not block paper entries.
+        // Still journal hunts, but prefer quality: near-shelf pattern entries,
+        // one open paper trade per market, restore 1:3 after shelf stops.
         PREDICTOR_MODE: "1",
         PAPER_LEARN_MAX: "1",
         PATTERN_TRADE_MIN: "0.55",
-        PAPER_COOLDOWN_MS: "45000",
-        PAPER_MAX_PENDING: "3",
+        PATTERN_EDGE_BOOST: "1",
+        PATTERN_NEAR_SHELF_ATR: "1.15",
+        PAPER_COOLDOWN_MS: "90000",
+        PAPER_MAX_PENDING: "1",
         SPIKE_WATCH_AGE_RATIO: "0.28",
         ENTRY_MIN_CONF: "0.12",
         ENTRY_MIN_P500: "0.05",
         ENTRY_MIN_AGE_RATIO: "0.25",
-        ENTRY_MAX_STOP_PCT: "4",
+        // Tighter after shelf-aware stops (was 4% under learn-max).
+        ENTRY_MAX_STOP_PCT: "1.35",
         ENTRY_HARD_REGIME: "0",
         ENTRY_HARD_FOCUS: "0",
         POLICY_MIN_CROSS_N: "12",

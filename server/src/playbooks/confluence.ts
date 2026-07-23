@@ -580,34 +580,59 @@ function pct(frac: number): string {
 
 /**
  * Soft edge boost from confluence.
- * Disabled by default after live history showed order-blocks / S/R / EMA-cross
- * more often flat or harmful than helpful vs baseline spike timing.
- * Set PLAYBOOK_EDGE_BOOST=1 to re-enable experimentally.
+ * Default: boost only spike-base / crash-ceiling retests (the pattern that
+ * matched live chart reads). Other retail playbooks stay info-only unless
+ * PLAYBOOK_EDGE_BOOST=1.
  */
 export function confluenceEdgeBoost(conf: ConfluenceSnapshot): {
   boost: number;
   reasons: string[];
 } {
-  const enabled =
+  const allPlaybooks =
     process.env.PLAYBOOK_EDGE_BOOST === "1" ||
     process.env.PLAYBOOK_EDGE_BOOST === "true";
-  if (!enabled || conf.count === 0) {
+  const patternBoost =
+    process.env.PATTERN_EDGE_BOOST == null ||
+    process.env.PATTERN_EDGE_BOOST === "" ||
+    (process.env.PATTERN_EDGE_BOOST !== "0" &&
+      process.env.PATTERN_EDGE_BOOST !== "false");
+
+  if (conf.count === 0) {
+    return { boost: 0, reasons: [] };
+  }
+
+  if (allPlaybooks) {
+    const boost = Math.min(0.14, conf.count * 0.045 + conf.score * 0.06);
     return {
-      boost: 0,
-      reasons:
-        conf.count > 0
-          ? conf.hits.map(
-              (h) =>
-                `Playbook (info): ${h.label} (${Math.round(h.score * 100)}%)`,
-            )
-          : [],
+      boost: Number(boost.toFixed(3)),
+      reasons: conf.hits.map(
+        (h) => `Playbook: ${h.label} (${Math.round(h.score * 100)}%)`,
+      ),
     };
   }
-  const boost = Math.min(0.14, conf.count * 0.045 + conf.score * 0.06);
+
+  const pattern = conf.hits.find((h) => h.id === "spike_base_retest");
+  if (patternBoost && pattern && pattern.score >= 0.55) {
+    const boost = Math.min(0.12, 0.035 + pattern.score * 0.09);
+    return {
+      boost: Number(boost.toFixed(3)),
+      reasons: [
+        `Pattern boost: ${pattern.label} (${Math.round(pattern.score * 100)}%)`,
+        ...conf.hits
+          .filter((h) => h.id !== "spike_base_retest")
+          .map(
+            (h) =>
+              `Playbook (info): ${h.label} (${Math.round(h.score * 100)}%)`,
+          ),
+      ],
+    };
+  }
+
   return {
-    boost: Number(boost.toFixed(3)),
+    boost: 0,
     reasons: conf.hits.map(
-      (h) => `Playbook: ${h.label} (${Math.round(h.score * 100)}%)`,
+      (h) =>
+        `Playbook (info): ${h.label} (${Math.round(h.score * 100)}%)`,
     ),
   };
 }

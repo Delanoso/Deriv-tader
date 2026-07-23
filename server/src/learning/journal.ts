@@ -132,11 +132,13 @@ export class SignalJournal {
     stretch?: number;
     invalidation?: number;
     regime?: TradeRegime;
+    pattern?: JournalSignal["pattern"];
+    note?: string;
   }): JournalSignal | null {
     if (input.kind === "stand_aside") return null;
     if (!input.entryPrice || !input.entryEpoch) return null;
 
-    const key = `${input.kind}:${input.bias}:${input.regime?.ageRegime ?? "?"}:${input.regime?.rsiRegime ?? "?"}`;
+    const key = `${input.kind}:${input.bias}:${input.regime?.ageRegime ?? "?"}:${input.regime?.rsiRegime ?? "?"}:${input.pattern?.nearShelf ? "near" : "far"}`;
     const now = Date.now();
     const prevKey = this.lastLiveKey[input.symbol];
     const prevAt = this.lastLiveAt[input.symbol] ?? 0;
@@ -147,10 +149,10 @@ export class SignalJournal {
       (process.env.PAPER_LEARN_MAX !== "0" &&
         process.env.PAPER_LEARN_MAX !== "false");
     const cooldownMs = Number(
-      process.env.PAPER_COOLDOWN_MS || (learnMax ? 45_000 : 120_000),
+      process.env.PAPER_COOLDOWN_MS || (learnMax ? 90_000 : 120_000),
     );
     const maxPending = Number(
-      process.env.PAPER_MAX_PENDING || (learnMax ? 3 : 1),
+      process.env.PAPER_MAX_PENDING || (learnMax ? 1 : 1),
     );
 
     if (sameSetup && now - prevAt < cooldownMs) return null;
@@ -161,7 +163,7 @@ export class SignalJournal {
         s.status === "pending" &&
         s.kind === input.kind &&
         s.bias === input.bias &&
-        Math.abs(s.entryEpoch - input.entryEpoch) < (learnMax ? 45 : 90),
+        Math.abs(s.entryEpoch - input.entryEpoch) < (learnMax ? 60 : 90),
     );
     if (recentDup) return null;
 
@@ -188,6 +190,8 @@ export class SignalJournal {
       stretch: input.stretch,
       invalidation: input.invalidation,
       regime: input.regime,
+      pattern: input.pattern,
+      note: input.note,
       createdAt: now,
       status: "pending",
       outcome: "open",
@@ -219,6 +223,7 @@ export class SignalJournal {
     invalidation: number;
     regime?: TradeRegime;
     note?: string;
+    pattern?: JournalSignal["pattern"];
   }): JournalSignal {
     const now = Date.now();
     const signal: JournalSignal = {
@@ -235,6 +240,7 @@ export class SignalJournal {
       stretch: input.stretch,
       invalidation: input.invalidation,
       regime: input.regime,
+      pattern: input.pattern,
       createdAt: now,
       status: "pending",
       outcome: "open",
@@ -399,6 +405,78 @@ export class SignalJournal {
     const allWins = allResolved.filter((s) => s.status === "win").length;
     const outcomes = buildOutcomeBreakdown(liveSpikeResolved);
 
+    const patternMin = Number(process.env.PATTERN_TRADE_MIN || 0.55);
+    const withPatternRows = liveSpikeResolved.filter(
+      (s) =>
+        s.pattern?.id === "spike_base_retest" &&
+        (s.pattern.score ?? 0) >= patternMin,
+    );
+    const withoutPatternRows = liveSpikeResolved.filter(
+      (s) =>
+        !(
+          s.pattern?.id === "spike_base_retest" &&
+          (s.pattern.score ?? 0) >= patternMin
+        ),
+    );
+    const nearShelfRows = liveSpikeResolved.filter((s) => s.pattern?.nearShelf);
+    const patternStats: LearningSummary["patternStats"] = {
+      withPattern: statsFor(withPatternRows, "spike_watch"),
+      withoutPattern: statsFor(withoutPatternRows, "spike_watch"),
+      nearShelf: statsFor(nearShelfRows, "spike_watch"),
+      bySymbol: {},
+    };
+    for (const symbol of symbols) {
+      const symResolved = liveSpikeResolved.filter((s) => s.symbol === symbol);
+      patternStats.bySymbol![symbol] = {
+        withPattern: statsFor(
+          symResolved.filter(
+            (s) =>
+              s.pattern?.id === "spike_base_retest" &&
+              (s.pattern.score ?? 0) >= patternMin,
+          ),
+          "spike_watch",
+        ),
+        withoutPattern: statsFor(
+          symResolved.filter(
+            (s) =>
+              !(
+                s.pattern?.id === "spike_base_retest" &&
+                (s.pattern.score ?? 0) >= patternMin
+              ),
+          ),
+          "spike_watch",
+        ),
+        nearShelf: statsFor(
+          symResolved.filter((s) => s.pattern?.nearShelf),
+          "spike_watch",
+        ),
+      };
+    }
+    const patN =
+      (patternStats.withPattern.winsAfterCost ?? patternStats.withPattern.wins) +
+      (patternStats.withPattern.lossesAfterCost ??
+        patternStats.withPattern.losses);
+    const otherN =
+      (patternStats.withoutPattern.winsAfterCost ??
+        patternStats.withoutPattern.wins) +
+      (patternStats.withoutPattern.lossesAfterCost ??
+        patternStats.withoutPattern.losses);
+    if (patN >= 8 && otherN >= 8) {
+      const patWr =
+        patternStats.withPattern.winRateAfterCost ??
+        patternStats.withPattern.winRate;
+      const otherWr =
+        patternStats.withoutPattern.winRateAfterCost ??
+        patternStats.withoutPattern.winRate;
+      const patExp = patternStats.withPattern.expectancyNetPct;
+      const otherExp = patternStats.withoutPattern.expectancyNetPct;
+      if (patWr != null && otherWr != null) {
+        insights.unshift(
+          `Pattern vs other: shelf retests ${(patWr * 100).toFixed(0)}% WR (n=${patN}, exp ${patExp?.toFixed(3) ?? "n/a"}%) vs ${(otherWr * 100).toFixed(0)}% (n=${otherN}, exp ${otherExp?.toFixed(3) ?? "n/a"}%).`,
+        );
+      }
+    }
+
     return {
       totalSignals: all.length,
       pending: all.filter((s) => s.status === "pending").length,
@@ -442,9 +520,10 @@ export class SignalJournal {
         gapExpectancy: walkForward.gapExpectancy,
         note: walkForward.note,
       },
-      insights: uniqueInsights(insights).slice(0, 12),
+      insights: uniqueInsights(insights).slice(0, 14),
       recent: [...all].slice(-12).reverse(),
       calibrated,
+      patternStats,
       updatedAt: Date.now(),
     };
   }

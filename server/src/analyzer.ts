@@ -3,7 +3,11 @@ import { buildSpikeForecast } from "./learning/hazard.js";
 import { blendConfidence } from "./learning/journal.js";
 import type { KillStatus } from "./learning/killRules.js";
 import { applyLevelHint, type LevelHint } from "./learning/levelTune.js";
-import { stopBeyondShelf, stopFromTarget } from "./learning/riskReward.js";
+import {
+  applyShelfAwareLevels,
+  distToShelfPct,
+  isNearShelf,
+} from "./learning/riskReward.js";
 import type { EntryPolicyDecision } from "./learning/entryPolicy.js";
 import { predictorMode } from "./learning/entryPolicy.js";
 import { paperLearnMax } from "./learning/entryGate.js";
@@ -108,6 +112,8 @@ export function analyzeSymbol(
       focusNote: opts?.focusNote ?? null,
       entryPolicy: opts?.entryPolicy ?? null,
       confluence: opts?.confluence ?? null,
+      lastQuote: quotes.length ? quotes[quotes.length - 1]! : null,
+      atr14: indicators.atr14,
     },
     calibration?.[symbol],
   );
@@ -202,15 +208,17 @@ function buildSpikePlan(ctx: {
     ctx.levelHint ?? undefined,
   );
 
-  // Start from 1:3 R:R, then push stop past the spike base / crash ceiling
-  // so a retest can print without stopping out first.
-  const rrStop = stopFromTarget(price, tuned.spikeTarget, isBoom);
+  // Start from 1:3 R:R. If a shelf is present, push stop beyond it and
+  // restore target/stretch so risk:reward stays ~1:3.
   const shelfBuf = atr > 0 ? atr * 0.2 : price * 0.0002;
-  const stop = stopBeyondShelf(rrStop, ctx.shelfPrice, isBoom, shelfBuf);
-  const shelfAdjusted =
-    ctx.shelfPrice != null &&
-    Number.isFinite(ctx.shelfPrice) &&
-    stop !== rrStop;
+  const levels = applyShelfAwareLevels({
+    entry: price,
+    target: tuned.spikeTarget,
+    stretch: tuned.stretch,
+    shelf: ctx.shelfPrice,
+    favorUp: isBoom,
+    buffer: shelfBuf,
+  });
   const gap = ctx.medianGap ?? ctx.meanGap;
   let ticksToEta: number | null = null;
   let expectedEpoch: number | null = null;
@@ -220,19 +228,24 @@ function buildSpikePlan(ctx: {
     expectedEpoch = ctx.lastEpoch + Math.round(ticksToEta * dt);
   }
 
+  const near =
+    ctx.shelfPrice != null
+      ? isNearShelf(price, ctx.shelfPrice, ctx.atr14)
+      : false;
+
   return {
-    spikeTarget: tuned.spikeTarget,
-    stretch: tuned.stretch,
-    invalidation: stop,
+    spikeTarget: levels.target,
+    stretch: levels.stretch,
+    invalidation: levels.stop,
     expectedEpoch,
     ticksToEta,
     expectedMovePct: Number(
-      ((Math.abs(tuned.spikeTarget - price) / price) * 100).toFixed(4),
+      ((Math.abs(levels.target - price) / price) * 100).toFixed(4),
     ),
-    method: shelfAdjusted
+    method: levels.shelfAdjusted
       ? `Median spike mag · stop beyond ${
           isBoom ? "spike base" : "crash ceiling"
-        } · median-gap ETA${tuned.methodSuffix}`
+        } · 1:3 restored${near ? " · near shelf" : ""}${tuned.methodSuffix}`
       : `Median spike mag · 1:3 R:R stop · median-gap ETA${tuned.methodSuffix}`,
     active: ctx.opportunityKind === "spike_watch",
   };
@@ -273,6 +286,8 @@ function scoreOpportunity(
         shelfPrice?: number;
       }>;
     } | null;
+    lastQuote?: number | null;
+    atr14?: number | null;
   },
   learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
 ): TradeOpportunity {
@@ -426,28 +441,39 @@ function scoreOpportunity(
   }
 
   // Chart pattern override: spike-base / crash-ceiling retest can open a hunt
-  // even when learned pockets are flat or age window is early.
+  // even when learned pockets are flat — but only when price is near the shelf.
   const patternMin = Number(process.env.PATTERN_TRADE_MIN || 0.55);
   const patternHit = confluence?.hits?.find((h) => h.id === "spike_base_retest");
   const coolEnough =
     ctx.ticksSinceLastSpike == null || ctx.ticksSinceLastSpike > 40;
+  const shelfPx = patternHit?.shelfPrice ?? confluence?.shelfPrice;
+  const nearShelf = isNearShelf(ctx.lastQuote ?? 0, shelfPx, ctx.atr14);
   if (
     patternHit &&
     patternHit.score >= patternMin &&
     coolEnough &&
-    !ctx.kill.killed
+    !ctx.kill.killed &&
+    nearShelf
   ) {
     kind = "spike_watch";
     bias = spikeBias;
     policyAllow = true;
     edgeScore = Math.max(edgeScore, patternHit.score);
-    confidence = Math.max(confidence, Math.min(0.7, 0.35 + patternHit.score * 0.4));
+    confidence = Math.max(confidence, Math.min(0.72, 0.4 + patternHit.score * 0.4));
     action = `${spikeAction} · pattern ${(patternHit.score * 100).toFixed(0)}%`;
     rationale.push(
-      `Pattern trade: ${patternHit.label} (${Math.round(patternHit.score * 100)}%) — ${patternHit.detail ?? "shelf retest"}`,
+      `Pattern trade: ${patternHit.label} (${Math.round(patternHit.score * 100)}%) near shelf — ${patternHit.detail ?? "shelf retest"}`,
     );
+    const dist = distToShelfPct(ctx.lastQuote ?? 0, shelfPx);
+    if (dist != null) {
+      rationale.push(`Entry ${dist.toFixed(3)}% from shelf.`);
+    }
     riskNote =
-      "Pattern hunt from spike-base / crash-ceiling retest. Exit only on stop or target.";
+      "Pattern hunt near spike-base / crash-ceiling. Exit only on stop or target.";
+  } else if (patternHit && patternHit.score >= patternMin && !nearShelf) {
+    rationale.push(
+      `Pattern seen (${Math.round(patternHit.score * 100)}%) but entry is far from shelf — wait for a closer retest.`,
+    );
   }
 
   const raw = Number(Math.max(0.08, Math.min(0.72, confidence)).toFixed(2));

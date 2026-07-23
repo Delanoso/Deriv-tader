@@ -76,9 +76,11 @@ test("confluence boost scales with hits", () => {
   }
 });
 
-test("confluence boost disabled by default", () => {
+test("confluence boost disabled by default for non-pattern playbooks", () => {
   const prev = process.env.PLAYBOOK_EDGE_BOOST;
+  const prevPat = process.env.PATTERN_EDGE_BOOST;
   delete process.env.PLAYBOOK_EDGE_BOOST;
+  delete process.env.PATTERN_EDGE_BOOST;
   try {
     const some = confluenceEdgeBoost({
       hits: [
@@ -98,6 +100,39 @@ test("confluence boost disabled by default", () => {
   } finally {
     if (prev == null) delete process.env.PLAYBOOK_EDGE_BOOST;
     else process.env.PLAYBOOK_EDGE_BOOST = prev;
+    if (prevPat == null) delete process.env.PATTERN_EDGE_BOOST;
+    else process.env.PATTERN_EDGE_BOOST = prevPat;
+  }
+});
+
+test("pattern edge boost applies to spike-base retests by default", () => {
+  const prev = process.env.PLAYBOOK_EDGE_BOOST;
+  const prevPat = process.env.PATTERN_EDGE_BOOST;
+  delete process.env.PLAYBOOK_EDGE_BOOST;
+  delete process.env.PATTERN_EDGE_BOOST;
+  try {
+    const some = confluenceEdgeBoost({
+      hits: [
+        {
+          id: "spike_base_retest",
+          label: "Spike-base retest",
+          score: 0.76,
+          detail: "test",
+          shelfPrice: 100,
+        },
+      ],
+      count: 1,
+      score: 0.76,
+      labels: ["Spike-base retest"],
+      shelfPrice: 100,
+    });
+    assert.ok(some.boost > 0);
+    assert.ok(some.reasons[0]?.includes("Pattern boost"));
+  } finally {
+    if (prev == null) delete process.env.PLAYBOOK_EDGE_BOOST;
+    else process.env.PLAYBOOK_EDGE_BOOST = prev;
+    if (prevPat == null) delete process.env.PATTERN_EDGE_BOOST;
+    else process.env.PATTERN_EDGE_BOOST = prevPat;
   }
 });
 

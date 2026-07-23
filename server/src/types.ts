@@ -186,6 +186,14 @@ export interface JournalSignal {
   outcome?: "spike" | "target" | "stopout" | "expired" | "open";
   note?: string;
   source: "live" | "bootstrap" | "manual";
+  /** Spike-base / crash-ceiling context snapped at entry. */
+  pattern?: {
+    id: "spike_base_retest";
+    score: number;
+    shelfPrice: number;
+    nearShelf: boolean;
+    distToShelfPct: number | null;
+  };
 }
 
 export interface KindStats {
@@ -342,6 +350,22 @@ export interface LearningSummary {
       Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>
     >
   >;
+  /** Live spike-hunt split: pattern shelf retests vs everything else. */
+  patternStats?: {
+    withPattern: KindStats;
+    withoutPattern: KindStats;
+    nearShelf: KindStats;
+    bySymbol: Partial<
+      Record<
+        SymbolId,
+        {
+          withPattern: KindStats;
+          withoutPattern: KindStats;
+          nearShelf: KindStats;
+        }
+      >
+    >;
+  };
   updatedAt: number;
 }
 

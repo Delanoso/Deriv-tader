@@ -47,9 +47,9 @@ export default function App() {
         </div>
         <h1>Trade monitor</h1>
         <p className="lede">
-          Learn-max is on — every spike-hunt window is paper-traded so the
-          journal can learn. Use the teach desk under each chart to journal your
-          own paper trades. Stops stay at 1:3 vs target.
+          Paper journal prefers near-shelf spike-base retests, restores 1:3 after
+          shelf stops, and keeps one open trade per market. Use Teach to add your
+          own reads.
         </p>
         <div className="cta-row">
           <span className={`status-pill ${live ? "live" : "off"}`}>{status}</span>

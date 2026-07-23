@@ -1,6 +1,7 @@
 import type { FocusWeightView, RegimeBucketStats, SymbolAnalysis } from "../types.js";
 import { ageRegimeFromRatio } from "./regimes.js";
 import { scoreAgeRegime } from "./regimePrefs.js";
+import { distToShelfPct, isNearShelf } from "./riskReward.js";
 
 export interface EntryGateResult {
   allow: boolean;
@@ -32,7 +33,8 @@ export function paperLearnMax(): boolean {
 
 /**
  * Journal spike hunts for paper learning.
- * With PAPER_LEARN_MAX (default), gates are soft so we gather as many resolved paths as possible.
+ * With PAPER_LEARN_MAX, gates stay soft — but wide stops and far-from-shelf
+ * pattern hunts are still blocked so the journal stays useful.
  */
 export function passSpikeEntryGate(
   analysis: SymbolAnalysis,
@@ -49,9 +51,17 @@ export function passSpikeEntryGate(
     (h) => h.id === "spike_base_retest",
   );
   const patternMin = Number(process.env.PATTERN_TRADE_MIN || 0.55);
+  const shelf =
+    patternHit?.shelfPrice ?? opp.confluence?.shelfPrice ?? null;
+  const nearShelf = isNearShelf(
+    analysis.lastQuote ?? 0,
+    shelf,
+    analysis.indicators.atr14,
+  );
   const patternTrade =
     patternHit != null &&
     patternHit.score >= patternMin &&
+    nearShelf &&
     (opp.policyAllow === true ||
       (opp.edgeScore != null && opp.edgeScore >= patternMin));
 
@@ -86,7 +96,7 @@ export function passSpikeEntryGate(
     process.env.ENTRY_MIN_AGE_RATIO || (learnMax ? 0.25 : 0.35),
   );
   const maxStopPct = Number(
-    process.env.ENTRY_MAX_STOP_PCT || (learnMax ? 4 : 2.5),
+    process.env.ENTRY_MAX_STOP_PCT || (learnMax ? 1.35 : 2.5),
   );
   const hardRegime =
     ctx.hardRegimeFilter ??
@@ -101,6 +111,23 @@ export function passSpikeEntryGate(
     reasons.push("Need more sampled spikes");
   }
 
+  // Always enforce stop width — shelf-aware stops can get too deep for learning.
+  if (stopPct != null && stopPct > maxStopPct) {
+    reasons.push(`Stop ${stopPct.toFixed(2)}% > max ${maxStopPct}%`);
+  }
+
+  // Pattern hunts must be near the shelf (enter at the base, not mid-decay).
+  if (
+    patternHit != null &&
+    patternHit.score >= patternMin &&
+    !nearShelf
+  ) {
+    const dist = distToShelfPct(analysis.lastQuote ?? 0, shelf);
+    reasons.push(
+      `Far from shelf${dist != null ? ` (${dist.toFixed(3)}%)` : ""} — wait for retest`,
+    );
+  }
+
   if (!learnMax && !patternTrade) {
     if (conf < minConf) {
       reasons.push(`Confidence ${conf.toFixed(2)} < ${minConf}`);
@@ -113,23 +140,28 @@ export function passSpikeEntryGate(
         `Timing weak (P≤500=${p500 == null ? "n/a" : (p500 * 100).toFixed(0)}%, ageRatio=${ageRatio == null ? "n/a" : ageRatio.toFixed(2)})`,
       );
     }
-    if (stopPct != null && stopPct > maxStopPct) {
-      reasons.push(`Stop ${stopPct.toFixed(2)}% > max ${maxStopPct}%`);
-    }
   } else if (patternTrade) {
+    // Clear non-stop reasons; pattern + near shelf + plan is enough.
+    const keep = reasons.filter(
+      (r) => r.startsWith("Stop ") || r.startsWith("Need more"),
+    );
     reasons.length = 0;
-    // Pattern trades only need a stop/target plan.
+    reasons.push(...keep);
     if (!analysis.spikePlan) {
       reasons.push("Pattern trade missing spike plan levels");
     }
   } else {
-    // Still require a minimal hunt window: either age or empiric odds.
+    // Learn-max general hunts: still need a minimal window.
     const timingOk =
       (p500 != null && p500 >= minP500) ||
       (ageRatio != null && ageRatio >= minAgeRatio) ||
       conf >= minConf;
     if (!timingOk) {
       reasons.push("Outside learn-max hunt window");
+    }
+    // If a shelf is visible but we're far away, prefer waiting — junk mid-decay.
+    if (shelf != null && !nearShelf && !learnMax) {
+      reasons.push("Shelf present but entry not near base");
     }
   }
 
@@ -148,10 +180,10 @@ export function passSpikeEntryGate(
 
   if (!learnMax && hardFocus) {
     if (ctx.symbolFocus?.deprioritize) {
-      reasons.push(`Focus: ${ctx.symbolFocus.note}`);
+      reasons.push(`Symbol deprioritized by focus (${ctx.symbolFocus.note})`);
     }
     if (ctx.ageFocus?.deprioritize) {
-      reasons.push(`Focus: ${ctx.ageFocus.note}`);
+      reasons.push(`Age focus deprioritized (${ctx.ageFocus.note})`);
     }
   }
 

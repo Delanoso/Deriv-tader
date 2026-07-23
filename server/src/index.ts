@@ -15,7 +15,12 @@ import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
 import { buildRegime, ageRegimeFromRatio } from "./learning/regimes.js";
 import { passSpikeEntryGate, paperLearnMax } from "./learning/entryGate.js";
-import { stopBeyondShelf, stopFromTarget } from "./learning/riskReward.js";
+import {
+  applyShelfAwareLevels,
+  distToShelfPct,
+  isNearShelf,
+  stopFromTarget,
+} from "./learning/riskReward.js";
 import {
   evaluateEntryPolicy,
   predictorMode,
@@ -126,10 +131,30 @@ function alignPendingStopsBeyondShelf(
 
   let changed = false;
   for (const row of journal.getPending(symbol)) {
-    if (row.invalidation == null) continue;
-    const next = stopBeyondShelf(row.invalidation, shelf, favorUp, buf);
-    if (next === row.invalidation) continue;
-    journal.updateSignal(row.id, { invalidation: next });
+    if (row.invalidation == null || !(row.entryPrice > 0)) continue;
+    const levels = applyShelfAwareLevels({
+      entry: row.entryPrice,
+      target: row.target ?? analysis.spikePlan?.spikeTarget ?? row.entryPrice,
+      stretch:
+        row.stretch ??
+        analysis.spikePlan?.stretch ??
+        row.target ??
+        row.entryPrice,
+      shelf,
+      favorUp,
+      buffer: buf,
+    });
+    if (
+      levels.stop === row.invalidation &&
+      (row.target == null || levels.target === row.target)
+    ) {
+      continue;
+    }
+    journal.updateSignal(row.id, {
+      invalidation: levels.stop,
+      target: levels.target,
+      stretch: levels.stretch,
+    });
     changed = true;
   }
   if (changed) refreshLearning();
@@ -277,6 +302,25 @@ function processSymbol(symbol: SymbolId): void {
       ageFocus,
     });
     if (gate.allow) {
+      const patternHit = opp.confluence?.hits?.find(
+        (h) => h.id === "spike_base_retest",
+      );
+      const shelf =
+        patternHit?.shelfPrice ?? opp.confluence?.shelfPrice ?? null;
+      const near =
+        shelf != null && final.lastQuote != null
+          ? isNearShelf(final.lastQuote, shelf, final.indicators.atr14)
+          : false;
+      const pattern =
+        patternHit != null && shelf != null
+          ? {
+              id: "spike_base_retest" as const,
+              score: patternHit.score,
+              shelfPrice: shelf,
+              nearShelf: near,
+              distToShelfPct: distToShelfPct(final.lastQuote ?? 0, shelf),
+            }
+          : undefined;
       const row = journal.maybeRecordLive({
         symbol,
         kind: "spike_watch",
@@ -293,6 +337,10 @@ function processSymbol(symbol: SymbolId): void {
         stretch: final.spikePlan?.stretch,
         invalidation: final.spikePlan?.invalidation,
         regime: buildRegime(final),
+        pattern,
+        note: pattern
+          ? `Pattern ${Math.round(pattern.score * 100)}%${near ? " · near shelf" : ""}`
+          : undefined,
       });
       if (row) recordGateAllow();
       refreshLearning();
@@ -483,27 +531,32 @@ app.post("/api/learning/manual", (req, res) => {
     }
   }
 
-  // Keep teach stops beyond the spike base / crash ceiling when present.
+  // Keep teach stops beyond the spike base / crash ceiling when present,
+  // and restore 1:3 target from the final stop.
   const shelf =
     analysis?.opportunity.confluence?.shelfPrice ??
     analysis?.opportunity.confluence?.hits?.find((h) => h.shelfPrice != null)
       ?.shelfPrice;
+  let stretch =
+    Number.isFinite(Number(body.stretch))
+      ? Number(body.stretch)
+      : analysis?.spikePlan?.stretch;
   if (shelf != null && Number.isFinite(shelf)) {
     const atr = analysis?.indicators.atr14;
     const buf =
       atr != null && atr > 0 ? atr * 0.2 : Math.abs(entryPrice) * 0.0002;
-    invalidation = stopBeyondShelf(
-      invalidation,
+    const levels = applyShelfAwareLevels({
+      entry: entryPrice,
+      target,
+      stretch: stretch ?? target,
       shelf,
-      bias === "bullish",
-      buf,
-    );
+      favorUp: bias === "bullish",
+      buffer: buf,
+    });
+    invalidation = levels.stop;
+    target = levels.target;
+    stretch = levels.stretch;
   }
-
-  const stretch =
-    Number.isFinite(Number(body.stretch))
-      ? Number(body.stretch)
-      : analysis?.spikePlan?.stretch;
 
   const entryEpoch = Number(
     body.entryEpoch ?? analysis?.lastEpoch ?? ticks.at(-1)?.epoch ?? Date.now() / 1000,
@@ -516,6 +569,24 @@ app.post("/api/learning/manual", (req, res) => {
     0.1,
     Math.min(0.95, Number(body.confidence ?? 0.55)),
   );
+
+  const near =
+    shelf != null
+      ? isNearShelf(entryPrice, shelf, analysis?.indicators.atr14)
+      : false;
+  const patternHit = analysis?.opportunity.confluence?.hits?.find(
+    (h) => h.id === "spike_base_retest",
+  );
+  const pattern =
+    patternHit != null && shelf != null
+      ? {
+          id: "spike_base_retest" as const,
+          score: patternHit.score,
+          shelfPrice: shelf,
+          nearShelf: near,
+          distToShelfPct: distToShelfPct(entryPrice, shelf),
+        }
+      : undefined;
 
   const row = journal.recordManual({
     symbol,
@@ -536,6 +607,7 @@ app.post("/api/learning/manual", (req, res) => {
     invalidation: Number(invalidation.toFixed(5)),
     regime: analysis ? buildRegime(analysis) : undefined,
     note: typeof body.note === "string" ? body.note : undefined,
+    pattern,
   });
 
   refreshLearning();
@@ -588,7 +660,7 @@ app.get("/api/playbooks", (_req, res) => {
     };
   }
   res.json({
-    note: "Measured on live tick history: these playbooks are display-only by default (they do not change entries). Includes the user-observed spike-base retest / micro-spike cluster pattern. Set PLAYBOOK_EDGE_BOOST=1 to experiment.",
+    note: "Spike-base / crash-ceiling retests soft-boost edge by default (PATTERN_EDGE_BOOST). Other retail playbooks stay display-only unless PLAYBOOK_EDGE_BOOST=1.",
     bySymbol,
   });
 });
