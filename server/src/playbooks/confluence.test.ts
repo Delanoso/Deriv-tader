@@ -104,7 +104,7 @@ test("confluence boost disabled by default", () => {
 test("historical playbook eval returns baseline + three playbooks", () => {
   const ticks = synthBoomTicks(5000);
   const rows = evaluatePlaybooksHistorically("BOOM300N", ticks, 300);
-  assert.equal(rows.length, 4);
+  assert.equal(rows.length, 5);
   assert.equal(rows[0].playbook, "baseline");
   assert.ok(rows[0].signals > 0);
 });

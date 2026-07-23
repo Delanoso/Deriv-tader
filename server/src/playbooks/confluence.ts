@@ -3,7 +3,11 @@ import { detectSpikes } from "../spikeDetector.js";
 import { isBoomSymbol } from "../symbols.js";
 import type { Candle, SpikeEvent, SymbolId, Tick } from "../types.js";
 
-export type PlaybookId = "sr_reversal" | "ema_cross" | "order_block";
+export type PlaybookId =
+  | "sr_reversal"
+  | "ema_cross"
+  | "order_block"
+  | "spike_base_retest";
 
 export interface PlaybookHit {
   id: PlaybookId;
@@ -24,7 +28,7 @@ export interface ConfluenceSnapshot {
 }
 
 /**
- * Evaluate the three retail Boom/Crash playbooks as confluence filters
+ * Evaluate retail Boom/Crash playbooks as confluence filters
  * (not standalone entry systems).
  */
 export function evaluateConfluence(
@@ -51,6 +55,9 @@ export function evaluateConfluence(
 
   const ob = orderBlockHit(isBoom, candles1m, spikes, price);
   if (ob) hits.push(ob);
+
+  const retest = spikeBaseRetestHit(isBoom, candles1m, spikes, price);
+  if (retest) hits.push(retest);
 
   const score =
     hits.length === 0
@@ -293,6 +300,7 @@ export function evaluatePlaybooksHistorically(
     sr_reversal: { signals: 0, hits: 0, mfe: [] },
     ema_cross: { signals: 0, hits: 0, mfe: [] },
     order_block: { signals: 0, hits: 0, mfe: [] },
+    spike_base_retest: { signals: 0, hits: 0, mfe: [] },
   };
 
   // Sample sparsely — full bar walk × spike detect is too heavy on 15k ticks.
@@ -333,7 +341,13 @@ export function evaluatePlaybooksHistorically(
   }
 
   const rows: PlaybookEvalRow[] = (
-    ["baseline", "sr_reversal", "ema_cross", "order_block"] as const
+    [
+      "baseline",
+      "sr_reversal",
+      "ema_cross",
+      "order_block",
+      "spike_base_retest",
+    ] as const
   ).map((id) => {
     const a = acc[id];
     const hitRate = a.signals ? a.hits / a.signals : null;
@@ -355,6 +369,81 @@ export function evaluatePlaybooksHistorically(
   });
 
   return rows;
+}
+
+/**
+ * User-observed pattern:
+ * retest of the base of a prior spike, with a tight cluster / W shape at the
+ * same shelf before the next larger move in the spike direction.
+ */
+function spikeBaseRetestHit(
+  isBoom: boolean,
+  candles1m: Candle[],
+  spikes: SpikeEvent[],
+  price: number,
+): PlaybookHit | null {
+  if (candles1m.length < 24 || spikes.length < 3) return null;
+
+  const atr1 = roughAtr(candles1m, 12) ?? price * 0.0015;
+  const baseBand = Math.max(price * 0.00045, atr1 * 0.45);
+  const recent = spikes.slice(-10).reverse();
+
+  for (const spike of recent) {
+    const idx = candles1m.findIndex((c) => c.epoch >= spike.epoch);
+    if (idx < 2 || idx >= candles1m.length - 4) continue;
+    const anchor = candles1m[Math.max(0, idx - 1)];
+    const base = isBoom ? anchor.low : anchor.high;
+
+    // Price must be back near that old shelf now.
+    const dist = Math.abs(price - base);
+    if (dist > baseBand) continue;
+
+    // Inspect the last few candles for repeated touches around the same shelf.
+    const cluster = candles1m.slice(-6);
+    const touches = cluster.filter((c) =>
+      isBoom
+        ? Math.abs(c.low - base) <= baseBand
+        : Math.abs(c.high - base) <= baseBand,
+    );
+    if (touches.length < 2) continue;
+
+    // Require a small W / double-bottom (or M / double-top for Crash).
+    const pivots = cluster.map((c) => (isBoom ? c.low : c.high));
+    const pivotSpan = Math.max(...pivots) - Math.min(...pivots);
+    if (pivotSpan > baseBand * 3.2) continue;
+
+    const first = touches[0];
+    const last = touches[touches.length - 1];
+    const separated = Math.abs(last.epoch - first.epoch) >= 60;
+    if (!separated) continue;
+
+    const miniSpikes = cluster.filter((c) =>
+      isBoom
+        ? c.close > c.open && c.high - c.low >= baseBand * 0.7
+        : c.close < c.open && c.high - c.low >= baseBand * 0.7,
+    ).length;
+
+    const score = Math.min(
+      0.94,
+      0.52 +
+        (touches.length >= 3 ? 0.12 : 0.06) +
+        Math.min(0.16, miniSpikes * 0.05) +
+        (1 - Math.min(1, dist / baseBand)) * 0.14,
+    );
+
+    return {
+      id: "spike_base_retest",
+      label: isBoom ? "Spike-base retest" : "Crash-ceiling retest",
+      score: Number(score.toFixed(3)),
+      detail: `${
+        isBoom ? "Retesting prior boom base" : "Retesting prior crash ceiling"
+      } near ${base.toFixed(3)} with ${touches.length} shelf touch${
+        touches.length === 1 ? "" : "es"
+      } and ${miniSpikes} micro-spike${miniSpikes === 1 ? "" : "s"}`,
+    };
+  }
+
+  return null;
 }
 
 function forwardSpikeOutcome(
