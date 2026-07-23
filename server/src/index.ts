@@ -440,7 +440,7 @@ app.get("/api/playbooks", (_req, res) => {
     };
   }
   res.json({
-    note: "Playbooks are confluence only — they boost learned pockets, they do not replace them.",
+    note: "Measured on live tick history: these playbooks are display-only by default (they do not change entries). Overall they were more often flat/harmful than helpful vs baseline spike timing. Set PLAYBOOK_EDGE_BOOST=1 to experiment.",
     bySymbol,
   });
 });

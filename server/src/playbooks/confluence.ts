@@ -467,17 +467,35 @@ function pct(frac: number): string {
 }
 
 /**
- * Soft edge boost from confluence. Does not force entries alone —
- * only strengthens an already-allowed learned pocket (or mild assist).
+ * Soft edge boost from confluence.
+ * Disabled by default after live history showed order-blocks / S/R / EMA-cross
+ * more often flat or harmful than helpful vs baseline spike timing.
+ * Set PLAYBOOK_EDGE_BOOST=1 to re-enable experimentally.
  */
 export function confluenceEdgeBoost(conf: ConfluenceSnapshot): {
   boost: number;
   reasons: string[];
 } {
-  if (conf.count === 0) return { boost: 0, reasons: [] };
+  const enabled =
+    process.env.PLAYBOOK_EDGE_BOOST === "1" ||
+    process.env.PLAYBOOK_EDGE_BOOST === "true";
+  if (!enabled || conf.count === 0) {
+    return {
+      boost: 0,
+      reasons:
+        conf.count > 0
+          ? conf.hits.map(
+              (h) =>
+                `Playbook (info): ${h.label} (${Math.round(h.score * 100)}%)`,
+            )
+          : [],
+    };
+  }
   const boost = Math.min(0.14, conf.count * 0.045 + conf.score * 0.06);
   return {
     boost: Number(boost.toFixed(3)),
-    reasons: conf.hits.map((h) => `Playbook: ${h.label} (${Math.round(h.score * 100)}%)`),
+    reasons: conf.hits.map(
+      (h) => `Playbook: ${h.label} (${Math.round(h.score * 100)}%)`,
+    ),
   };
 }

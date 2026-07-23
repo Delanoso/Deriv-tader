@@ -45,28 +45,60 @@ test("confluence boost scales with hits", () => {
   });
   assert.equal(none.boost, 0);
 
-  const some = confluenceEdgeBoost({
-    hits: [
-      {
-        id: "ema_cross",
-        label: "EMA 9/21 cross up",
-        score: 0.8,
-        detail: "test",
-      },
-      {
-        id: "order_block",
-        label: "Demand zone",
-        score: 0.7,
-        detail: "test",
-      },
-    ],
-    count: 2,
-    score: 0.85,
-    labels: ["EMA 9/21 cross up", "Demand zone"],
-  });
-  assert.ok(some.boost > 0.05);
-  assert.ok(some.boost <= 0.14);
-  assert.equal(some.reasons.length, 2);
+  const prev = process.env.PLAYBOOK_EDGE_BOOST;
+  process.env.PLAYBOOK_EDGE_BOOST = "1";
+  try {
+    const some = confluenceEdgeBoost({
+      hits: [
+        {
+          id: "ema_cross",
+          label: "EMA 9/21 cross up",
+          score: 0.8,
+          detail: "test",
+        },
+        {
+          id: "order_block",
+          label: "Demand zone",
+          score: 0.7,
+          detail: "test",
+        },
+      ],
+      count: 2,
+      score: 0.85,
+      labels: ["EMA 9/21 cross up", "Demand zone"],
+    });
+    assert.ok(some.boost > 0.05);
+    assert.ok(some.boost <= 0.14);
+    assert.equal(some.reasons.length, 2);
+  } finally {
+    if (prev == null) delete process.env.PLAYBOOK_EDGE_BOOST;
+    else process.env.PLAYBOOK_EDGE_BOOST = prev;
+  }
+});
+
+test("confluence boost disabled by default", () => {
+  const prev = process.env.PLAYBOOK_EDGE_BOOST;
+  delete process.env.PLAYBOOK_EDGE_BOOST;
+  try {
+    const some = confluenceEdgeBoost({
+      hits: [
+        {
+          id: "ema_cross",
+          label: "EMA 9/21 cross up",
+          score: 0.8,
+          detail: "test",
+        },
+      ],
+      count: 1,
+      score: 0.8,
+      labels: ["EMA 9/21 cross up"],
+    });
+    assert.equal(some.boost, 0);
+    assert.ok(some.reasons[0]?.includes("info"));
+  } finally {
+    if (prev == null) delete process.env.PLAYBOOK_EDGE_BOOST;
+    else process.env.PLAYBOOK_EDGE_BOOST = prev;
+  }
 });
 
 test("historical playbook eval returns baseline + three playbooks", () => {
