@@ -3,6 +3,7 @@ import { PriceChart, type ChartLevel, type ForecastMarker } from "./PriceChart";
 import { useEffect, useMemo, useState } from "react";
 
 const MONITOR_EDGE = 0.7;
+const MONITOR_PATTERN = 0.7;
 
 interface Props {
   analysis: SymbolAnalysis;
@@ -18,11 +19,23 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
 
   const edge = analysis.opportunity.edgeScore ?? 0;
   const edgePct = Math.round(edge * 100);
-  const showTrade =
+  const retestHit = analysis.opportunity.confluence?.hits?.find(
+    (h) => h.id === "spike_base_retest",
+  );
+  const patternScore = retestHit?.score ?? 0;
+  const patternPct = Math.round(patternScore * 100);
+  const patternStrong = patternScore >= MONITOR_PATTERN;
+  const shelfPrice =
+    retestHit?.shelfPrice ?? analysis.opportunity.confluence?.shelfPrice;
+
+  const showLearnedTrade =
     edge >= MONITOR_EDGE &&
     analysis.opportunity.kind === "spike_watch" &&
     analysis.opportunity.policyAllow !== false &&
     Boolean(analysis.spikePlan?.active || analysis.lastQuote != null);
+
+  const showPatternTrade = patternStrong && analysis.lastQuote != null;
+  const showTrade = showLearnedTrade || showPatternTrade;
 
   const symbolStats = learning?.bySymbol?.[analysis.symbol]?.overall;
   const winRate = symbolStats?.winRateAfterCost ?? symbolStats?.winRate ?? null;
@@ -31,11 +44,10 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
   const decided = wins + losses;
 
   const levels = useMemo((): ChartLevel[] => {
-    // Open paper trades are always drawn so you can monitor them.
+    const out: ChartLevel[] = [];
+
     if (openTrade) {
-      const out: ChartLevel[] = [
-        { price: openTrade.entryPrice, color: "#7c3aed", title: "Entry" },
-      ];
+      out.push({ price: openTrade.entryPrice, color: "#7c3aed", title: "Entry" });
       if (openTrade.target != null) {
         out.push({ price: openTrade.target, color: "#0d9488", title: "Target" });
       }
@@ -49,26 +61,52 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
           title: "Stop",
         });
       }
-      return out;
-    }
-
-    // Proposed setup only when edge ≥ 70%.
-    if (!showTrade || !analysis.spikePlan || analysis.lastQuote == null) return [];
-    return [
-      { price: analysis.lastQuote, color: "#7c3aed", title: "Entry" },
-      {
+    } else if (showLearnedTrade && analysis.spikePlan && analysis.lastQuote != null) {
+      out.push({ price: analysis.lastQuote, color: "#7c3aed", title: "Entry" });
+      out.push({
         price: analysis.spikePlan.spikeTarget,
         color: "#0d9488",
         title: "Target",
-      },
-      { price: analysis.spikePlan.stretch, color: "#2563eb", title: "Stretch" },
-      {
+      });
+      out.push({ price: analysis.spikePlan.stretch, color: "#2563eb", title: "Stretch" });
+      out.push({
         price: analysis.spikePlan.invalidation,
         color: "#ff6b4a",
         title: "Stop",
-      },
-    ];
-  }, [showTrade, openTrade, analysis.spikePlan, analysis.lastQuote]);
+      });
+    } else if (showPatternTrade && analysis.lastQuote != null && analysis.spikePlan) {
+      out.push({ price: analysis.lastQuote, color: "#7c3aed", title: "Entry" });
+      out.push({
+        price: analysis.spikePlan.spikeTarget,
+        color: "#0d9488",
+        title: "Target",
+      });
+      out.push({
+        price: analysis.spikePlan.invalidation,
+        color: "#ff6b4a",
+        title: "Stop",
+      });
+    }
+
+    if (shelfPrice != null && (showPatternTrade || patternStrong)) {
+      out.push({
+        price: shelfPrice,
+        color: "#b45309",
+        title: isBoom ? "Spike base" : "Crash ceiling",
+      });
+    }
+
+    return out;
+  }, [
+    showLearnedTrade,
+    showPatternTrade,
+    patternStrong,
+    openTrade,
+    analysis.spikePlan,
+    analysis.lastQuote,
+    shelfPrice,
+    isBoom,
+  ]);
 
   const tradeMarkers = useMemo((): ForecastMarker[] => {
     if (!openTrade?.entryEpoch) return [];
@@ -125,9 +163,13 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
             }) ?? "—"}
           </h2>
         </div>
-        <div className={`edge-meter ${edge >= MONITOR_EDGE ? "hot" : ""}`}>
-          <span>Edge</span>
-          <strong>{edgePct}</strong>
+        <div
+          className={`edge-meter ${
+            edge >= MONITOR_EDGE || patternStrong ? "hot" : ""
+          }`}
+        >
+          <span>{patternStrong && !showLearnedTrade ? "Pattern" : "Edge"}</span>
+          <strong>{patternStrong && !showLearnedTrade ? patternPct : edgePct}</strong>
           <em>/ 100</em>
         </div>
       </header>
@@ -150,7 +192,11 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
         />
         <Stat label="Wins" value={String(wins)} tone="win" />
         <Stat label="Losses" value={String(losses)} tone="loss" />
-        <Stat label="Edge" value={`${edgePct}%`} tone={edge >= MONITOR_EDGE ? "hot" : undefined} />
+        <Stat
+          label={patternStrong ? "Pattern" : "Edge"}
+          value={`${patternStrong ? patternPct : edgePct}%`}
+          tone={edge >= MONITOR_EDGE || patternStrong ? "hot" : undefined}
+        />
       </div>
 
       {monitorOpen ? (
@@ -159,9 +205,11 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
             <span className="monitor-badge">
               {openTrade
                 ? "Open trade — monitor"
-                : `Monitor trade · ${edgePct}% edge`}
+                : showLearnedTrade
+                  ? `Monitor trade · ${edgePct}% edge`
+                  : `Pattern monitor · ${patternPct}%`}
             </span>
-            <span className={`bias-chip bias-${analysis.opportunity.bias}`}>
+            <span className={`bias-chip bias-${isBoom ? "bullish" : "bearish"}`}>
               {isBoom ? "BUY spike" : "SELL spike"}
             </span>
           </div>
@@ -172,31 +220,32 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
                 <Level label="Target" value={fmtPrice(openTrade.target)} />
                 <Level label="Stop" value={fmtPrice(openTrade.invalidation)} />
               </>
-            ) : analysis.spikePlan && analysis.lastQuote != null ? (
+            ) : analysis.lastQuote != null ? (
               <>
                 <Level label="Entry" value={fmtPrice(analysis.lastQuote)} />
                 <Level
-                  label="Target"
-                  value={fmtPrice(analysis.spikePlan.spikeTarget)}
+                  label={isBoom ? "Base" : "Ceiling"}
+                  value={fmtPrice(shelfPrice ?? analysis.lastQuote)}
                 />
                 <Level
-                  label="Stop"
-                  value={fmtPrice(analysis.spikePlan.invalidation)}
+                  label="Target"
+                  value={fmtPrice(analysis.spikePlan?.spikeTarget)}
                 />
               </>
             ) : null}
           </div>
-          {analysis.opportunity.confluence &&
-            analysis.opportunity.confluence.count > 0 && (
-              <p className="confluence-tags">
-                Playbooks: {analysis.opportunity.confluence.labels.join(" · ")}
-              </p>
-            )}
+          {(analysis.opportunity.confluence?.labels.length ?? 0) > 0 && (
+            <p className="confluence-tags">
+              Playbooks: {analysis.opportunity.confluence!.labels.join(" · ")}
+              {retestHit?.detail ? ` — ${retestHit.detail}` : ""}
+            </p>
+          )}
         </div>
       ) : (
         <p className="monitor-idle">
-          No trade to monitor — edge needs {Math.round(MONITOR_EDGE * 100)}%+
-          (now {edgePct}%).
+          No trade to monitor — need {Math.round(MONITOR_EDGE * 100)}%+ edge or{" "}
+          {Math.round(MONITOR_PATTERN * 100)}%+ spike-base pattern (edge {edgePct}
+          %{patternScore > 0 ? ` · pattern ${patternPct}%` : ""}).
           {analysis.opportunity.confluence &&
           analysis.opportunity.confluence.count > 0
             ? ` Playbooks active: ${analysis.opportunity.confluence.labels.join(", ")}.`

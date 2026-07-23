@@ -49,11 +49,19 @@ export interface TradeOpportunity {
   /** Whether learned entry policy allows a hunt. */
   policyAllow?: boolean;
   policyReasons?: string[];
-  /** Active retail playbook confluence (S/R, EMA cross, order block). */
+  /** Active retail playbook confluence (S/R, EMA cross, order block, retest). */
   confluence?: {
     count: number;
     score: number;
     labels: string[];
+    shelfPrice?: number;
+    hits?: Array<{
+      id: string;
+      label: string;
+      score: number;
+      detail?: string;
+      shelfPrice?: number;
+    }>;
   };
 }
 

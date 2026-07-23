@@ -15,6 +15,8 @@ export interface PlaybookHit {
   /** 0–1 strength of the setup. */
   score: number;
   detail: string;
+  /** Key shelf / base / ceiling price when relevant. */
+  shelfPrice?: number;
 }
 
 export interface ConfluenceSnapshot {
@@ -25,6 +27,8 @@ export interface ConfluenceSnapshot {
   score: number;
   /** Short labels for UI / journal. */
   labels: string[];
+  /** Best spike-base / crash-ceiling shelf when that pattern is active. */
+  shelfPrice?: number;
 }
 
 /**
@@ -68,11 +72,13 @@ export function evaluateConfluence(
             (hits.length - 1) * 0.12,
         );
 
+  const shelfHit = hits.find((h) => h.id === "spike_base_retest" && h.shelfPrice != null);
   return {
     hits,
     count: hits.length,
     score: Number(score.toFixed(3)),
     labels: hits.map((h) => h.label),
+    shelfPrice: shelfHit?.shelfPrice,
   };
 }
 
@@ -440,6 +446,7 @@ function spikeBaseRetestHit(
       } near ${base.toFixed(3)} with ${touches.length} shelf touch${
         touches.length === 1 ? "" : "es"
       } and ${miniSpikes} micro-spike${miniSpikes === 1 ? "" : "s"}`,
+      shelfPrice: Number(base.toFixed(5)),
     };
   }
 

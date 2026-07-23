@@ -53,6 +53,14 @@ export function analyzeSymbol(
       count: number;
       score: number;
       labels: string[];
+      shelfPrice?: number;
+      hits?: Array<{
+        id: string;
+        label: string;
+        score: number;
+        detail?: string;
+        shelfPrice?: number;
+      }>;
     } | null;
   },
 ): SymbolAnalysis {
@@ -239,6 +247,14 @@ function scoreOpportunity(
       count: number;
       score: number;
       labels: string[];
+      shelfPrice?: number;
+      hits?: Array<{
+        id: string;
+        label: string;
+        score: number;
+        detail?: string;
+        shelfPrice?: number;
+      }>;
     } | null;
   },
   learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
@@ -264,6 +280,8 @@ function scoreOpportunity(
         count: ctx.confluence.count,
         score: ctx.confluence.score,
         labels: ctx.confluence.labels,
+        shelfPrice: ctx.confluence.shelfPrice,
+        hits: ctx.confluence.hits,
       }
     : undefined;
 

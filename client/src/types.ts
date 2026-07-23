@@ -49,6 +49,14 @@ export interface TradeOpportunity {
     count: number;
     score: number;
     labels: string[];
+    shelfPrice?: number;
+    hits?: Array<{
+      id: string;
+      label: string;
+      score: number;
+      detail?: string;
+      shelfPrice?: number;
+    }>;
   };
 }
 

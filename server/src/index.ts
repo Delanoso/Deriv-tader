@@ -171,6 +171,14 @@ function processSymbol(symbol: SymbolId): void {
     count: confluence.count,
     score: confluence.score,
     labels: confluence.labels,
+    shelfPrice: confluence.shelfPrice,
+    hits: confluence.hits.map((h) => ({
+      id: h.id,
+      label: h.label,
+      score: h.score,
+      detail: h.detail,
+      shelfPrice: h.shelfPrice,
+    })),
   };
 
   const analysis = analyzeSymbol(
