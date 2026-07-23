@@ -388,69 +388,85 @@ function spikeBaseRetestHit(
   spikes: SpikeEvent[],
   price: number,
 ): PlaybookHit | null {
-  if (candles1m.length < 24 || spikes.length < 3) return null;
+  if (candles1m.length < 20 || spikes.length < 2) return null;
 
   const atr1 = roughAtr(candles1m, 12) ?? price * 0.0015;
-  const baseBand = Math.max(price * 0.00045, atr1 * 0.45);
-  const recent = spikes.slice(-10).reverse();
+  // Wider shelf than v1 — chart patterns sit in a corridor, not a single tick.
+  const baseBand = Math.max(price * 0.0008, atr1 * 0.7);
+  const nowEpoch = candles1m[candles1m.length - 1].epoch;
 
-  for (const spike of recent) {
+  // Prefer completed spikes (skip the newest ~2 minutes) as shelf anchors.
+  const candidates = spikes
+    .filter((s) => s.epoch < nowEpoch - 120)
+    .slice(-14)
+    .reverse();
+
+  let best: PlaybookHit | null = null;
+
+  for (const spike of candidates) {
     const idx = candles1m.findIndex((c) => c.epoch >= spike.epoch);
-    if (idx < 2 || idx >= candles1m.length - 4) continue;
+    if (idx < 2) continue;
     const anchor = candles1m[Math.max(0, idx - 1)];
     const base = isBoom ? anchor.low : anchor.high;
 
-    // Price must be back near that old shelf now.
-    const dist = Math.abs(price - base);
-    if (dist > baseBand) continue;
+    // After the spike, price must have moved away from the shelf, then returned.
+    const after = candles1m.slice(idx + 1);
+    if (after.length < 2) continue;
+    let departed = false;
+    for (const c of after) {
+      const away = isBoom
+        ? c.low > base + baseBand * 1.2
+        : c.high < base - baseBand * 1.2;
+      if (away) {
+        departed = true;
+        break;
+      }
+    }
+    if (!departed) continue;
 
-    // Inspect the last few candles for repeated touches around the same shelf.
-    const cluster = candles1m.slice(-6);
+    const dist = Math.abs(price - base);
+    if (dist > baseBand * 1.35) continue;
+
+    const cluster = candles1m.slice(-8);
     const touches = cluster.filter((c) =>
       isBoom
         ? Math.abs(c.low - base) <= baseBand
         : Math.abs(c.high - base) <= baseBand,
     );
-    if (touches.length < 2) continue;
-
-    // Require a small W / double-bottom (or M / double-top for Crash).
-    const pivots = cluster.map((c) => (isBoom ? c.low : c.high));
-    const pivotSpan = Math.max(...pivots) - Math.min(...pivots);
-    if (pivotSpan > baseBand * 3.2) continue;
-
-    const first = touches[0];
-    const last = touches[touches.length - 1];
-    const separated = Math.abs(last.epoch - first.epoch) >= 60;
-    if (!separated) continue;
+    // One clear return to the shelf is enough; two+ is stronger (W / M).
+    if (touches.length < 1) continue;
 
     const miniSpikes = cluster.filter((c) =>
       isBoom
-        ? c.close > c.open && c.high - c.low >= baseBand * 0.7
-        : c.close < c.open && c.high - c.low >= baseBand * 0.7,
+        ? c.close > c.open && c.high - c.low >= baseBand * 0.55
+        : c.close < c.open && c.high - c.low >= baseBand * 0.55,
     ).length;
 
+    const closeness = 1 - Math.min(1, dist / (baseBand * 1.35));
     const score = Math.min(
-      0.94,
-      0.52 +
-        (touches.length >= 3 ? 0.12 : 0.06) +
-        Math.min(0.16, miniSpikes * 0.05) +
-        (1 - Math.min(1, dist / baseBand)) * 0.14,
+      0.96,
+      0.58 +
+        closeness * 0.2 +
+        (touches.length >= 2 ? 0.1 : 0.04) +
+        Math.min(0.12, miniSpikes * 0.04),
     );
 
-    return {
+    const hit: PlaybookHit = {
       id: "spike_base_retest",
       label: isBoom ? "Spike-base retest" : "Crash-ceiling retest",
       score: Number(score.toFixed(3)),
       detail: `${
         isBoom ? "Retesting prior boom base" : "Retesting prior crash ceiling"
-      } near ${base.toFixed(3)} with ${touches.length} shelf touch${
+      } near ${base.toFixed(3)} · ${touches.length} touch${
         touches.length === 1 ? "" : "es"
-      } and ${miniSpikes} micro-spike${miniSpikes === 1 ? "" : "s"}`,
+      } · ${miniSpikes} micro-spike${miniSpikes === 1 ? "" : "s"}`,
       shelfPrice: Number(base.toFixed(5)),
     };
+
+    if (!best || hit.score > best.score) best = hit;
   }
 
-  return null;
+  return best;
 }
 
 function forwardSpikeOutcome(

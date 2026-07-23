@@ -46,8 +46,8 @@ export default function App() {
         </div>
         <h1>Trade monitor</h1>
         <p className="lede">
-          Win rate, trades won or lost, and edge out of 100. A setup only appears
-          when edge is 70% or higher.
+          Win rate, trades won or lost, and edge out of 100. Setups appear when
+          learned edge is 70%+ or the spike-base pattern is 55%+.
         </p>
         <div className="cta-row">
           <span className={`status-pill ${live ? "live" : "off"}`}>{status}</span>

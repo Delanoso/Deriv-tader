@@ -3,7 +3,8 @@ import { PriceChart, type ChartLevel, type ForecastMarker } from "./PriceChart";
 import { useEffect, useMemo, useState } from "react";
 
 const MONITOR_EDGE = 0.7;
-const MONITOR_PATTERN = 0.7;
+/** Match server PATTERN_TRADE_MIN — show/monitor when pattern is this strong. */
+const MONITOR_PATTERN = 0.55;
 
 interface Props {
   analysis: SymbolAnalysis;

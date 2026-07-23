@@ -21,6 +21,7 @@ module.exports = {
         // Predictor mode: only signal learned edge pockets; wide stops
         PREDICTOR_MODE: "1",
         PAPER_LEARN_MAX: "0",
+        PATTERN_TRADE_MIN: "0.55",
         PAPER_COOLDOWN_MS: "90000",
         PAPER_MAX_PENDING: "1",
         SPIKE_WATCH_AGE_RATIO: "0.4",

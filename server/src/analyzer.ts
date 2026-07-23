@@ -408,6 +408,31 @@ function scoreOpportunity(
     }
   }
 
+  // Chart pattern override: spike-base / crash-ceiling retest can open a hunt
+  // even when learned pockets are flat or age window is early.
+  const patternMin = Number(process.env.PATTERN_TRADE_MIN || 0.55);
+  const patternHit = confluence?.hits?.find((h) => h.id === "spike_base_retest");
+  const coolEnough =
+    ctx.ticksSinceLastSpike == null || ctx.ticksSinceLastSpike > 40;
+  if (
+    patternHit &&
+    patternHit.score >= patternMin &&
+    coolEnough &&
+    !ctx.kill.killed
+  ) {
+    kind = "spike_watch";
+    bias = spikeBias;
+    policyAllow = true;
+    edgeScore = Math.max(edgeScore, patternHit.score);
+    confidence = Math.max(confidence, Math.min(0.7, 0.35 + patternHit.score * 0.4));
+    action = `${spikeAction} · pattern ${(patternHit.score * 100).toFixed(0)}%`;
+    rationale.push(
+      `Pattern trade: ${patternHit.label} (${Math.round(patternHit.score * 100)}%) — ${patternHit.detail ?? "shelf retest"}`,
+    );
+    riskNote =
+      "Pattern hunt from spike-base / crash-ceiling retest. Exit only on stop or target.";
+  }
+
   const raw = Number(Math.max(0.08, Math.min(0.72, confidence)).toFixed(2));
   let calibrated = raw;
   if (kind === "spike_watch") {

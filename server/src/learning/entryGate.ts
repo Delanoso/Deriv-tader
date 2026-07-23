@@ -45,9 +45,18 @@ export function passSpikeEntryGate(
   }
 
   const learnMax = paperLearnMax();
+  const patternHit = opp.confluence?.hits?.find(
+    (h) => h.id === "spike_base_retest",
+  );
+  const patternMin = Number(process.env.PATTERN_TRADE_MIN || 0.55);
+  const patternTrade =
+    patternHit != null &&
+    patternHit.score >= patternMin &&
+    (opp.policyAllow === true ||
+      (opp.edgeScore != null && opp.edgeScore >= patternMin));
 
   // In learn-max mode, kill is warning-only at analyze time; still respect hard kill if forced off.
-  if (analysis.kill?.killed && !learnMax) {
+  if (analysis.kill?.killed && !learnMax && !patternTrade) {
     return { allow: false, reasons: ["Kill rule active"] };
   }
 
@@ -92,7 +101,7 @@ export function passSpikeEntryGate(
     reasons.push("Need more sampled spikes");
   }
 
-  if (!learnMax) {
+  if (!learnMax && !patternTrade) {
     if (conf < minConf) {
       reasons.push(`Confidence ${conf.toFixed(2)} < ${minConf}`);
     }
@@ -106,6 +115,12 @@ export function passSpikeEntryGate(
     }
     if (stopPct != null && stopPct > maxStopPct) {
       reasons.push(`Stop ${stopPct.toFixed(2)}% > max ${maxStopPct}%`);
+    }
+  } else if (patternTrade) {
+    reasons.length = 0;
+    // Pattern trades only need a stop/target plan.
+    if (!analysis.spikePlan) {
+      reasons.push("Pattern trade missing spike plan levels");
     }
   } else {
     // Still require a minimal hunt window: either age or empiric odds.
