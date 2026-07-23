@@ -3,7 +3,7 @@ import { buildSpikeForecast } from "./learning/hazard.js";
 import { blendConfidence } from "./learning/journal.js";
 import type { KillStatus } from "./learning/killRules.js";
 import { applyLevelHint, type LevelHint } from "./learning/levelTune.js";
-import { stopFromTarget } from "./learning/riskReward.js";
+import { stopBeyondShelf, stopFromTarget } from "./learning/riskReward.js";
 import type { EntryPolicyDecision } from "./learning/entryPolicy.js";
 import { predictorMode } from "./learning/entryPolicy.js";
 import { paperLearnMax } from "./learning/entryGate.js";
@@ -126,6 +126,7 @@ export function analyzeSymbol(
     medianGap: stats.median,
     opportunityKind: opportunity.kind,
     levelHint: opts?.levelHint ?? null,
+    shelfPrice: opts?.confluence?.shelfPrice ?? null,
   });
 
   return {
@@ -167,6 +168,7 @@ function buildSpikePlan(ctx: {
   medianGap: number | null;
   opportunityKind: OpportunityKind;
   levelHint?: LevelHint | null;
+  shelfPrice?: number | null;
 }): SpikePlan | null {
   if (ctx.lastQuote == null || ctx.lastEpoch == null) return null;
   if (ctx.spikes.length < 2) return null;
@@ -200,8 +202,15 @@ function buildSpikePlan(ctx: {
     ctx.levelHint ?? undefined,
   );
 
-  // Hard 1:3 R:R — stop is always 33% of the target distance.
+  // Start from 1:3 R:R, then push stop past the spike base / crash ceiling
+  // so a retest can print without stopping out first.
   const rrStop = stopFromTarget(price, tuned.spikeTarget, isBoom);
+  const shelfBuf = atr > 0 ? atr * 0.2 : price * 0.0002;
+  const stop = stopBeyondShelf(rrStop, ctx.shelfPrice, isBoom, shelfBuf);
+  const shelfAdjusted =
+    ctx.shelfPrice != null &&
+    Number.isFinite(ctx.shelfPrice) &&
+    stop !== rrStop;
   const gap = ctx.medianGap ?? ctx.meanGap;
   let ticksToEta: number | null = null;
   let expectedEpoch: number | null = null;
@@ -214,13 +223,17 @@ function buildSpikePlan(ctx: {
   return {
     spikeTarget: tuned.spikeTarget,
     stretch: tuned.stretch,
-    invalidation: rrStop,
+    invalidation: stop,
     expectedEpoch,
     ticksToEta,
     expectedMovePct: Number(
       ((Math.abs(tuned.spikeTarget - price) / price) * 100).toFixed(4),
     ),
-    method: `Median spike mag · 1:3 R:R stop · median-gap ETA${tuned.methodSuffix}`,
+    method: shelfAdjusted
+      ? `Median spike mag · stop beyond ${
+          isBoom ? "spike base" : "crash ceiling"
+        } · median-gap ETA${tuned.methodSuffix}`
+      : `Median spike mag · 1:3 R:R stop · median-gap ETA${tuned.methodSuffix}`,
     active: ctx.opportunityKind === "spike_watch",
   };
 }

@@ -20,6 +20,32 @@ export function stopFromTarget(
   return Number(stop.toFixed(6));
 }
 
+/**
+ * Keep the stop on the far side of the spike base / crash ceiling.
+ * Boom (favorUp): stop must sit below the shelf so price can retest the base.
+ * Crash: stop must sit above the ceiling so price can retest from below.
+ */
+export function stopBeyondShelf(
+  stop: number,
+  shelf: number | null | undefined,
+  favorUp: boolean,
+  buffer = 0,
+): number {
+  if (
+    shelf == null ||
+    !Number.isFinite(shelf) ||
+    !Number.isFinite(stop) ||
+    !Number.isFinite(buffer)
+  ) {
+    return stop;
+  }
+  const pad = Math.max(0, buffer);
+  if (favorUp) {
+    return Number(Math.min(stop, shelf - pad).toFixed(6));
+  }
+  return Number(Math.max(stop, shelf + pad).toFixed(6));
+}
+
 /** % stop distance given a % target distance (1:R). */
 export function stopPctFromTargetPct(
   targetPct: number,

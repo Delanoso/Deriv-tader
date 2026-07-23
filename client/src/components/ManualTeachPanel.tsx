@@ -57,13 +57,24 @@ export function ManualTeachPanel({ analysis, symbol, onRecorded }: Props) {
   }, [defaults, symbol]);
 
   // Keep 1:3 when target changes and stop was still on auto ratio.
+  // Also keep stop beyond the spike base / crash ceiling when present.
   function onTargetChange(value: string) {
     setTarget(value);
     const e = Number(entry);
     const t = Number(value);
     if (!Number.isFinite(e) || !Number.isFinite(t) || e <= 0) return;
     const dist = Math.abs(t - e) / 3;
-    const next = isBoom ? e - dist : e + dist;
+    let next = isBoom ? e - dist : e + dist;
+    const shelf =
+      analysis?.opportunity.confluence?.shelfPrice ??
+      analysis?.opportunity.confluence?.hits?.find((h) => h.shelfPrice != null)
+        ?.shelfPrice;
+    if (shelf != null && Number.isFinite(shelf)) {
+      next = isBoom ? Math.min(next, shelf) : Math.max(next, shelf);
+      // Small pad past the shelf so a wick through the base doesn't stop first.
+      const pad = e * 0.00015;
+      next = isBoom ? next - pad : next + pad;
+    }
     setStop(next.toFixed(3));
   }
 
@@ -133,7 +144,7 @@ export function ManualTeachPanel({ analysis, symbol, onRecorded }: Props) {
           />
         </label>
         <label>
-          <span>Stop (1:3)</span>
+          <span>Stop</span>
           <input
             value={stop}
             onChange={(ev) => setStop(ev.target.value)}

@@ -15,7 +15,7 @@ import { evaluateKillRule } from "./learning/killRules.js";
 import { SignalJournal } from "./learning/journal.js";
 import { buildRegime, ageRegimeFromRatio } from "./learning/regimes.js";
 import { passSpikeEntryGate, paperLearnMax } from "./learning/entryGate.js";
-import { stopFromTarget } from "./learning/riskReward.js";
+import { stopBeyondShelf, stopFromTarget } from "./learning/riskReward.js";
 import {
   evaluateEntryPolicy,
   predictorMode,
@@ -106,6 +106,33 @@ function refreshLearning(): void {
     ...journal.summarize(),
     gateTelemetry: getGateTelemetry(),
   };
+}
+
+/** Move open paper stops past the spike base / crash ceiling when a shelf is known. */
+function alignPendingStopsBeyondShelf(
+  symbol: SymbolId,
+  analysis: SymbolAnalysis,
+): void {
+  const shelf =
+    analysis.opportunity.confluence?.shelfPrice ??
+    analysis.opportunity.confluence?.hits?.find((h) => h.shelfPrice != null)
+      ?.shelfPrice;
+  if (shelf == null || !Number.isFinite(shelf)) return;
+
+  const favorUp = symbol.startsWith("BOOM");
+  const atr = analysis.indicators.atr14;
+  const ref = analysis.lastQuote ?? shelf;
+  const buf = atr != null && atr > 0 ? atr * 0.2 : Math.abs(ref) * 0.0002;
+
+  let changed = false;
+  for (const row of journal.getPending(symbol)) {
+    if (row.invalidation == null) continue;
+    const next = stopBeyondShelf(row.invalidation, shelf, favorUp, buf);
+    if (next === row.invalidation) continue;
+    journal.updateSignal(row.id, { invalidation: next });
+    changed = true;
+  }
+  if (changed) refreshLearning();
 }
 
 function refreshVolLearning(): void {
@@ -235,6 +262,7 @@ function processSymbol(symbol: SymbolId): void {
   }
 
   const final = analyses[symbol]!;
+  alignPendingStopsBeyondShelf(symbol, final);
   const opp = final.opportunity;
   // Journal only real predictor hunts (policy-allowed spike_watch).
   if (
@@ -453,6 +481,23 @@ app.post("/api/learning/manual", (req, res) => {
     if (!okSide) {
       invalidation = stopFromTarget(entryPrice, target, bias === "bullish");
     }
+  }
+
+  // Keep teach stops beyond the spike base / crash ceiling when present.
+  const shelf =
+    analysis?.opportunity.confluence?.shelfPrice ??
+    analysis?.opportunity.confluence?.hits?.find((h) => h.shelfPrice != null)
+      ?.shelfPrice;
+  if (shelf != null && Number.isFinite(shelf)) {
+    const atr = analysis?.indicators.atr14;
+    const buf =
+      atr != null && atr > 0 ? atr * 0.2 : Math.abs(entryPrice) * 0.0002;
+    invalidation = stopBeyondShelf(
+      invalidation,
+      shelf,
+      bias === "bullish",
+      buf,
+    );
   }
 
   const stretch =
