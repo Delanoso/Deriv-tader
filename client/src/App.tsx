@@ -34,6 +34,7 @@ export default function App() {
     volAnalysis?.prediction.calibratedConfidence ??
     volAnalysis?.prediction.confidence;
   const activeEdge = active?.opportunity.edgeScore ?? 0;
+  const hunting = active?.opportunity.kind === "spike_watch";
 
   return (
     <div className="app">
@@ -46,8 +47,8 @@ export default function App() {
         </div>
         <h1>Trade monitor</h1>
         <p className="lede">
-          Win rate, trades won or lost, and edge out of 100. Setups appear when
-          learned edge is 70%+ or the spike-base pattern is 55%+.
+          Learn-max is on — every spike-hunt window is paper-traded so the
+          journal can learn. Stops stay at 1:3 vs target.
         </p>
         <div className="cta-row">
           <span className={`status-pill ${live ? "live" : "off"}`}>{status}</span>
@@ -59,9 +60,10 @@ export default function App() {
               <span className="status-pill soft">
                 {loadedCount}/{TABS.length} markets
               </span>
-              {activeEdge >= MONITOR_EDGE && (
+              <span className="status-pill live">Learn-max</span>
+              {hunting && (
                 <span className="status-pill live">
-                  Monitor · {Math.round(activeEdge * 100)}% edge
+                  Hunting · {Math.round(activeEdge * 100)}% edge
                 </span>
               )}
             </>
@@ -70,9 +72,9 @@ export default function App() {
               <span className={`status-pill ${vol.connected ? "live" : "off"}`}>
                 {volStatus}
               </span>
-              {volEdge != null && volEdge >= MONITOR_EDGE && (
+              {volEdge != null && volAnalysis?.prediction.bias !== "neutral" && (
                 <span className="status-pill live">
-                  Monitor · {Math.round(volEdge * 100)}% edge
+                  Vol hunt · {Math.round(volEdge * 100)}%
                 </span>
               )}
             </>

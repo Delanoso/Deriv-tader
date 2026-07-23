@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { VolAnalysis, VolJournalSignal, VolLearningSummary } from "../types";
 import { PriceChart, type ChartLevel, type ForecastMarker } from "./PriceChart";
 
-const MONITOR_EDGE = 0.7;
-
 interface Props {
   analysis: VolAnalysis;
   learning?: VolLearningSummary | null;
@@ -17,8 +15,7 @@ export function VolPanel({ analysis, learning }: Props) {
   const [recentTrades, setRecentTrades] = useState<VolJournalSignal[]>([]);
   const [openTrade, setOpenTrade] = useState<VolJournalSignal | null>(null);
 
-  const showTrade =
-    edge >= MONITOR_EDGE && pred.bias !== "neutral" && analysis.lastQuote != null;
+  const showTrade = pred.bias !== "neutral" && analysis.lastQuote != null;
 
   const wins =
     (learning?.byBias?.up?.winsAfterCost ?? learning?.byBias?.up?.wins ?? 0) +
@@ -109,7 +106,7 @@ export function VolPanel({ analysis, learning }: Props) {
             }) ?? "—"}
           </h2>
         </div>
-        <div className={`edge-meter ${edge >= MONITOR_EDGE ? "hot" : ""}`}>
+        <div className={`edge-meter ${showTrade ? "hot" : ""}`}>
           <span>Edge</span>
           <strong>{edgePct}</strong>
           <em>/ 100</em>
@@ -141,7 +138,7 @@ export function VolPanel({ analysis, learning }: Props) {
         <Stat
           label="Edge"
           value={`${edgePct}%`}
-          tone={edge >= MONITOR_EDGE ? "hot" : undefined}
+          tone={showTrade ? "hot" : undefined}
         />
       </div>
 
@@ -150,8 +147,8 @@ export function VolPanel({ analysis, learning }: Props) {
           <div className="trade-monitor-top">
             <span className="monitor-badge">
               {openTrade
-                ? "Open trade — monitor"
-                : `Monitor trade · ${edgePct}% edge`}
+                ? "Open paper trade — learning"
+                : `Hunt · edge ${edgePct}%`}
             </span>
             <span className={`bias-chip bias-${pred.bias}`}>
               {pred.bias === "up" ? "BUY" : pred.bias === "down" ? "SELL" : "FLAT"}
@@ -178,8 +175,7 @@ export function VolPanel({ analysis, learning }: Props) {
         </div>
       ) : (
         <p className="monitor-idle">
-          No trade to monitor — edge needs {Math.round(MONITOR_EDGE * 100)}%+
-          (now {edgePct}%).
+          Waiting for a clear Vol direction (edge {edgePct}%).
         </p>
       )}
 

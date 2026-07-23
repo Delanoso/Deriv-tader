@@ -3,7 +3,7 @@ import { PriceChart, type ChartLevel, type ForecastMarker } from "./PriceChart";
 import { useEffect, useMemo, useState } from "react";
 
 const MONITOR_EDGE = 0.7;
-/** Match server PATTERN_TRADE_MIN — show/monitor when pattern is this strong. */
+/** Highlight pattern strength in the meter when present. */
 const MONITOR_PATTERN = 0.55;
 
 interface Props {
@@ -29,14 +29,10 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
   const shelfPrice =
     retestHit?.shelfPrice ?? analysis.opportunity.confluence?.shelfPrice;
 
-  const showLearnedTrade =
-    edge >= MONITOR_EDGE &&
-    analysis.opportunity.kind === "spike_watch" &&
-    analysis.opportunity.policyAllow !== false &&
-    Boolean(analysis.spikePlan?.active || analysis.lastQuote != null);
-
-  const showPatternTrade = patternStrong && analysis.lastQuote != null;
-  const showTrade = showLearnedTrade || showPatternTrade;
+  // Learn-max: show every active hunt / open paper trade — no 70% gate.
+  const hunting =
+    analysis.opportunity.kind === "spike_watch" && analysis.lastQuote != null;
+  const showTrade = hunting || Boolean(openTrade);
 
   const symbolStats = learning?.bySymbol?.[analysis.symbol]?.overall;
   const winRate = symbolStats?.winRateAfterCost ?? symbolStats?.winRate ?? null;
@@ -62,25 +58,17 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
           title: "Stop",
         });
       }
-    } else if (showLearnedTrade && analysis.spikePlan && analysis.lastQuote != null) {
+    } else if (hunting && analysis.spikePlan && analysis.lastQuote != null) {
       out.push({ price: analysis.lastQuote, color: "#7c3aed", title: "Entry" });
       out.push({
         price: analysis.spikePlan.spikeTarget,
         color: "#0d9488",
         title: "Target",
       });
-      out.push({ price: analysis.spikePlan.stretch, color: "#2563eb", title: "Stretch" });
       out.push({
-        price: analysis.spikePlan.invalidation,
-        color: "#ff6b4a",
-        title: "Stop",
-      });
-    } else if (showPatternTrade && analysis.lastQuote != null && analysis.spikePlan) {
-      out.push({ price: analysis.lastQuote, color: "#7c3aed", title: "Entry" });
-      out.push({
-        price: analysis.spikePlan.spikeTarget,
-        color: "#0d9488",
-        title: "Target",
+        price: analysis.spikePlan.stretch,
+        color: "#2563eb",
+        title: "Stretch",
       });
       out.push({
         price: analysis.spikePlan.invalidation,
@@ -89,7 +77,7 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
       });
     }
 
-    if (shelfPrice != null && (showPatternTrade || patternStrong)) {
+    if (shelfPrice != null && (hunting || patternStrong || openTrade)) {
       out.push({
         price: shelfPrice,
         color: "#b45309",
@@ -99,8 +87,7 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
 
     return out;
   }, [
-    showLearnedTrade,
-    showPatternTrade,
+    hunting,
     patternStrong,
     openTrade,
     analysis.spikePlan,
@@ -166,11 +153,11 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
         </div>
         <div
           className={`edge-meter ${
-            edge >= MONITOR_EDGE || patternStrong ? "hot" : ""
+            hunting || edge >= MONITOR_EDGE || patternStrong ? "hot" : ""
           }`}
         >
-          <span>{patternStrong && !showLearnedTrade ? "Pattern" : "Edge"}</span>
-          <strong>{patternStrong && !showLearnedTrade ? patternPct : edgePct}</strong>
+          <span>{patternStrong ? "Pattern" : "Edge"}</span>
+          <strong>{patternStrong ? patternPct : edgePct}</strong>
           <em>/ 100</em>
         </div>
       </header>
@@ -196,7 +183,7 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
         <Stat
           label={patternStrong ? "Pattern" : "Edge"}
           value={`${patternStrong ? patternPct : edgePct}%`}
-          tone={edge >= MONITOR_EDGE || patternStrong ? "hot" : undefined}
+          tone={hunting || edge >= MONITOR_EDGE || patternStrong ? "hot" : undefined}
         />
       </div>
 
@@ -205,10 +192,10 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
           <div className="trade-monitor-top">
             <span className="monitor-badge">
               {openTrade
-                ? "Open trade — monitor"
-                : showLearnedTrade
-                  ? `Monitor trade · ${edgePct}% edge`
-                  : `Pattern monitor · ${patternPct}%`}
+                ? "Open paper trade — learning"
+                : patternStrong
+                  ? `Hunt · pattern ${patternPct}%`
+                  : `Hunt · edge ${edgePct}%`}
             </span>
             <span className={`bias-chip bias-${isBoom ? "bullish" : "bearish"}`}>
               {isBoom ? "BUY spike" : "SELL spike"}
@@ -225,12 +212,12 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
               <>
                 <Level label="Entry" value={fmtPrice(analysis.lastQuote)} />
                 <Level
-                  label={isBoom ? "Base" : "Ceiling"}
-                  value={fmtPrice(shelfPrice ?? analysis.lastQuote)}
-                />
-                <Level
                   label="Target"
                   value={fmtPrice(analysis.spikePlan?.spikeTarget)}
+                />
+                <Level
+                  label="Stop"
+                  value={fmtPrice(analysis.spikePlan?.invalidation)}
                 />
               </>
             ) : null}
@@ -244,12 +231,12 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
         </div>
       ) : (
         <p className="monitor-idle">
-          No trade to monitor — need {Math.round(MONITOR_EDGE * 100)}%+ edge or{" "}
-          {Math.round(MONITOR_PATTERN * 100)}%+ spike-base pattern (edge {edgePct}
-          %{patternScore > 0 ? ` · pattern ${patternPct}%` : ""}).
+          Waiting for the next spike-hunt window
+          {patternScore > 0 ? ` · pattern ${patternPct}%` : ""}
+          {` · edge ${edgePct}%`}.
           {analysis.opportunity.confluence &&
           analysis.opportunity.confluence.count > 0
-            ? ` Playbooks active: ${analysis.opportunity.confluence.labels.join(", ")}.`
+            ? ` Playbooks: ${analysis.opportunity.confluence.labels.join(", ")}.`
             : ""}
         </p>
       )}

@@ -370,7 +370,7 @@ function scoreOpportunity(
       if (ctx.focusNote) rationale.push(ctx.focusNote);
     }
 
-    // Predictor policy: only keep spike_watch when learned pocket has edge.
+    // Predictor policy: score pockets, but learn-max keeps hunts open for journaling.
     if (predMode && ctx.entryPolicy) {
       policyAllow = ctx.entryPolicy.allow;
       policyReasons = ctx.entryPolicy.reasons;
@@ -378,13 +378,22 @@ function scoreOpportunity(
       for (const r of ctx.entryPolicy.reasons.slice(0, 4)) {
         rationale.push(r);
       }
-      if (!ctx.entryPolicy.allow) {
+      if (!ctx.entryPolicy.allow && !learnMax) {
         kind = "stand_aside";
         bias = "neutral";
         action = "No learned edge — stand aside";
         confidence = Math.min(confidence, 0.22);
         riskNote =
           "Predictor mode only signals when live age×RSI / age pockets show non-negative expectancy.";
+      } else if (!ctx.entryPolicy.allow && learnMax) {
+        // Keep hunting so the journal learns from every window.
+        policyAllow = true;
+        edgeScore = Math.max(edgeScore, 0.35);
+        confidence = Math.min(0.55, Math.max(confidence, 0.28));
+        action = `${spikeAction} · learn-max`;
+        riskNote =
+          "Learn-max hunt — paper trade every window to gather outcomes. Exit only on stop or target.";
+        rationale.push("Learn-max: journaling this hunt even without a strong learned pocket.");
       } else {
         confidence = Math.min(0.72, confidence * (0.75 + edgeScore * 0.5));
         action = `${spikeAction} · edge ${(edgeScore * 100).toFixed(0)}%`;
