@@ -6,6 +6,7 @@ import { applyLevelHint, type LevelHint } from "./learning/levelTune.js";
 import { stopFromTarget } from "./learning/riskReward.js";
 import type { EntryPolicyDecision } from "./learning/entryPolicy.js";
 import { predictorMode } from "./learning/entryPolicy.js";
+import { paperLearnMax } from "./learning/entryGate.js";
 import type { RegimePreference } from "./learning/regimePrefs.js";
 import { ageRegimeFromRatio } from "./learning/regimes.js";
 import { detectSpikes, interSpikeStats } from "./spikeDetector.js";
@@ -293,13 +294,7 @@ function scoreOpportunity(
   const p500 = horizonOf(ctx.forecast, 500);
   const p1000 = horizonOf(ctx.forecast, 1000);
   const predMode = predictorMode();
-  // Predictor mode prefers quality windows; learn-max opens earlier.
-  const learnMax =
-    !predMode &&
-    (process.env.PAPER_LEARN_MAX == null ||
-      process.env.PAPER_LEARN_MAX === "" ||
-      (process.env.PAPER_LEARN_MAX !== "0" &&
-        process.env.PAPER_LEARN_MAX !== "false"));
+  const learnMax = paperLearnMax();
   const watchAgeRatio = Number(
     process.env.SPIKE_WATCH_AGE_RATIO || (learnMax ? 0.28 : predMode ? 0.4 : 0.35),
   );
