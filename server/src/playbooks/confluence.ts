@@ -295,33 +295,34 @@ export function evaluatePlaybooksHistorically(
     order_block: { signals: 0, hits: 0, mfe: [] },
   };
 
-  // Sample every 1m candle after warmup.
-  const start = Math.max(80, Math.floor(candles1m.length * 0.25));
-  for (let ci = start; ci < candles1m.length - 2; ci++) {
+  // Sample sparsely — full bar walk × spike detect is too heavy on 15k ticks.
+  const start = Math.max(80, Math.floor(candles1m.length * 0.3));
+  const step = Math.max(3, Math.floor((candles1m.length - start) / 40));
+
+  for (let ci = start; ci < candles1m.length - 2; ci += step) {
     const epoch = candles1m[ci].epoch;
-    // Ticks available up to this candle close.
     let tickEnd = ticks.findIndex((t) => t.epoch > epoch + 59);
     if (tickEnd < 0) tickEnd = ticks.length;
-    const window = ticks.slice(0, tickEnd);
+    // Keep evaluation windows bounded for speed.
+    const sliceStart = Math.max(0, tickEnd - 8000);
+    const window = ticks.slice(sliceStart, tickEnd);
     if (window.length < 400) continue;
 
     const conf = evaluateConfluence(symbol, window);
     const price = window[window.length - 1].quote;
+    const absIndex = tickEnd - 1;
     const outcome = forwardSpikeOutcome(
       spikes,
-      window.length - 1,
+      absIndex,
       price,
       horizonTicks,
       isBoom,
       ticks,
     );
 
-    // Baseline: sample every 8th bar to keep comparable density.
-    if (ci % 8 === 0) {
-      acc.baseline.signals += 1;
-      if (outcome.hit) acc.baseline.hits += 1;
-      acc.baseline.mfe.push(outcome.mfePct);
-    }
+    acc.baseline.signals += 1;
+    if (outcome.hit) acc.baseline.hits += 1;
+    acc.baseline.mfe.push(outcome.mfePct);
 
     for (const h of conf.hits) {
       const bucket = acc[h.id];
@@ -345,7 +346,11 @@ export function evaluatePlaybooksHistorically(
       spikeHits: a.hits,
       hitRate,
       avgMfePct,
-      note: noteFor(id, hitRate, acc.baseline.signals ? acc.baseline.hits / acc.baseline.signals : null),
+      note: noteFor(
+        id,
+        hitRate,
+        acc.baseline.signals ? acc.baseline.hits / acc.baseline.signals : null,
+      ),
     };
   });
 
