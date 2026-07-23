@@ -19,6 +19,11 @@ import {
   evaluateEntryPolicy,
   predictorMode,
 } from "./learning/entryPolicy.js";
+import {
+  confluenceEdgeBoost,
+  evaluateConfluence,
+  evaluatePlaybooksHistorically,
+} from "./playbooks/confluence.js";
 import { combineFocusWeight } from "./learning/focusWeights.js";
 import {
   getGateTelemetry,
@@ -150,13 +155,23 @@ function processSymbol(symbol: SymbolId): void {
   const p500 =
     prev?.forecast?.horizons.find((h) => h.horizonTicks === 500)?.probability ??
     null;
+  const confluence = evaluateConfluence(symbol, ticks);
+  const confBoost = confluenceEdgeBoost(confluence);
   const entryPolicy = evaluateEntryPolicy({
     symbol,
     ageRatio,
     rsi14,
     pSpike500: p500,
     learning,
+    confluenceBoost: confBoost.boost,
+    confluenceReasons: confBoost.reasons,
   });
+
+  const confView = {
+    count: confluence.count,
+    score: confluence.score,
+    labels: confluence.labels,
+  };
 
   const analysis = analyzeSymbol(
     symbol,
@@ -169,6 +184,7 @@ function processSymbol(symbol: SymbolId): void {
       focusWeight: combinedFocus.weight,
       focusNote: combinedFocus.note,
       entryPolicy,
+      confluence: confView,
     },
   );
   // Re-evaluate policy with fresh RSI / forecast from this analysis.
@@ -186,6 +202,8 @@ function processSymbol(symbol: SymbolId): void {
       analysis.forecast?.horizons.find((h) => h.horizonTicks === 500)
         ?.probability ?? null,
     learning,
+    confluenceBoost: confBoost.boost,
+    confluenceReasons: confBoost.reasons,
   });
   // If policy flipped after fresh indicators, re-score once.
   if (freshPolicy.allow !== entryPolicy.allow || freshPolicy.edgeScore !== entryPolicy.edgeScore) {
@@ -200,6 +218,7 @@ function processSymbol(symbol: SymbolId): void {
         focusWeight: combinedFocus.weight,
         focusNote: combinedFocus.note,
         entryPolicy: freshPolicy,
+        confluence: confView,
       },
     );
   } else {
@@ -405,6 +424,40 @@ app.get("/api/backtest/:symbol", (req, res) => {
   const ticks = client.getTicks(symbol);
   const result = backtestSpikeStrategy(symbol, ticks);
   res.json({ symbol, ...result, ticksUsed: ticks.length });
+});
+
+/** Historical lift test for S/R · EMA cross · order-block playbooks. */
+app.get("/api/playbooks", (_req, res) => {
+  const bySymbol: Record<string, unknown> = {};
+  for (const symbol of SYMBOLS) {
+    const ticks = client.getTicks(symbol);
+    const live = evaluateConfluence(symbol, ticks);
+    const historical = evaluatePlaybooksHistorically(symbol, ticks);
+    bySymbol[symbol] = {
+      live,
+      historical,
+      ticksUsed: ticks.length,
+    };
+  }
+  res.json({
+    note: "Playbooks are confluence only — they boost learned pockets, they do not replace them.",
+    bySymbol,
+  });
+});
+
+app.get("/api/playbooks/:symbol", (req, res) => {
+  const symbol = req.params.symbol as SymbolId;
+  if (!SYMBOLS.includes(symbol)) {
+    res.status(400).json({ error: "Unknown symbol" });
+    return;
+  }
+  const ticks = client.getTicks(symbol);
+  res.json({
+    symbol,
+    live: evaluateConfluence(symbol, ticks),
+    historical: evaluatePlaybooksHistorically(symbol, ticks),
+    ticksUsed: ticks.length,
+  });
 });
 
 const clientDist = path.resolve(__dirname, "../../client/dist");

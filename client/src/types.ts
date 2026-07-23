@@ -45,6 +45,11 @@ export interface TradeOpportunity {
   edgeScore?: number;
   policyAllow?: boolean;
   policyReasons?: string[];
+  confluence?: {
+    count: number;
+    score: number;
+    labels: string[];
+  };
 }
 
 export interface HorizonProb {

@@ -49,6 +49,11 @@ export function analyzeSymbol(
     focusWeight?: number;
     focusNote?: string | null;
     entryPolicy?: EntryPolicyDecision | null;
+    confluence?: {
+      count: number;
+      score: number;
+      labels: string[];
+    } | null;
   },
 ): SymbolAnalysis {
   const candles = buildCandlesFromTicks(ticks, 60);
@@ -92,6 +97,7 @@ export function analyzeSymbol(
       focusWeight: opts?.focusWeight ?? 1,
       focusNote: opts?.focusNote ?? null,
       entryPolicy: opts?.entryPolicy ?? null,
+      confluence: opts?.confluence ?? null,
     },
     calibration?.[symbol],
   );
@@ -229,6 +235,11 @@ function scoreOpportunity(
     focusWeight?: number;
     focusNote?: string | null;
     entryPolicy?: EntryPolicyDecision | null;
+    confluence?: {
+      count: number;
+      score: number;
+      labels: string[];
+    } | null;
   },
   learnedRates?: Partial<Record<Exclude<OpportunityKind, "stand_aside">, number>>,
 ): TradeOpportunity {
@@ -248,6 +259,13 @@ function scoreOpportunity(
   let edgeScore = 0.3;
   let policyAllow: boolean | undefined;
   let policyReasons: string[] | undefined;
+  const confluence = ctx.confluence
+    ? {
+        count: ctx.confluence.count,
+        score: ctx.confluence.score,
+        labels: ctx.confluence.labels,
+      }
+    : undefined;
 
   const mean = ctx.meanInterSpike ?? ADVERTISED_INTERVAL;
   const since = ctx.ticksSinceLastSpike;
@@ -397,6 +415,7 @@ function scoreOpportunity(
     edgeScore,
     policyAllow,
     policyReasons,
+    confluence,
   };
 }
 

@@ -17,6 +17,9 @@ export interface EntryPolicyInput {
   rsi14: number | null;
   pSpike500: number | null;
   learning: LearningSummary;
+  /** Soft boost from S/R · EMA cross · order-block confluence (0–1). */
+  confluenceBoost?: number;
+  confluenceReasons?: string[];
 }
 
 export interface EntryPolicyDecision {
@@ -162,6 +165,43 @@ export function evaluateEntryPolicy(input: EntryPolicyInput): EntryPolicyDecisio
     } else if (input.pSpike500 < 0.12 && allow) {
       edgeScore = Math.max(0.25, edgeScore - 0.08);
       reasons.push(`Weak timing P≤500=${(input.pSpike500 * 100).toFixed(0)}%`);
+    }
+  }
+
+  // Retail playbook confluence (15m S/R, EMA cross, order blocks).
+  // Softens edge only when a learned pocket already allows — never forces entries alone.
+  const confBoost = input.confluenceBoost ?? 0;
+  if (confBoost > 0) {
+    if (allow) {
+      edgeScore = Math.min(0.95, edgeScore + confBoost);
+      for (const r of (input.confluenceReasons ?? []).slice(0, 3)) {
+        reasons.push(r);
+      }
+    } else if (confBoost >= 0.1) {
+      // Strong multi-playbook agreement can reopen a near-miss pocket only when
+      // cross/age was sample-starved but not negative.
+      const nearMiss =
+        (cross.n >= Math.max(6, Math.floor(minCrossN * 0.5)) &&
+          cross.exp != null &&
+          cross.exp >= -0.005) ||
+        (age.n >= Math.max(20, Math.floor(minAgeN * 0.5)) &&
+          age.exp != null &&
+          age.exp >= -0.005);
+      if (nearMiss) {
+        allow = true;
+        edgeScore = Math.min(0.72, 0.5 + confBoost);
+        reasons.push(
+          "Playbook confluence reopened a near-flat learned pocket",
+        );
+        for (const r of (input.confluenceReasons ?? []).slice(0, 3)) {
+          reasons.push(r);
+        }
+      } else {
+        for (const r of (input.confluenceReasons ?? []).slice(0, 2)) {
+          reasons.push(r);
+        }
+        reasons.push("Playbooks present but no learned pocket — still aside");
+      }
     }
   }
 

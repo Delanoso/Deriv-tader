@@ -186,11 +186,21 @@ export function SymbolPanel({ analysis, active, learning }: Props) {
               </>
             ) : null}
           </div>
+          {analysis.opportunity.confluence &&
+            analysis.opportunity.confluence.count > 0 && (
+              <p className="confluence-tags">
+                Playbooks: {analysis.opportunity.confluence.labels.join(" · ")}
+              </p>
+            )}
         </div>
       ) : (
         <p className="monitor-idle">
           No trade to monitor — edge needs {Math.round(MONITOR_EDGE * 100)}%+
           (now {edgePct}%).
+          {analysis.opportunity.confluence &&
+          analysis.opportunity.confluence.count > 0
+            ? ` Playbooks active: ${analysis.opportunity.confluence.labels.join(", ")}.`
+            : ""}
         </p>
       )}
 

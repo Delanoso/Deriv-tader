@@ -406,6 +406,12 @@ button {
   font-size: 0.9rem;
 }
 
+.confluence-tags {
+  margin: 0.65rem 0 0;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
 .trade-log {
   margin-top: 1rem;
   border-top: 1px solid var(--line);
