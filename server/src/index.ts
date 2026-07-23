@@ -124,11 +124,13 @@ function processSymbol(symbol: SymbolId): void {
   refreshLearning();
   const spikeStats = learning.live.bySymbol[symbol]?.byKind.spike_watch;
   const killRaw = evaluateKillRule(spikeStats);
-  // Predictor mode: honor kill. Learn-max: soft warning only.
-  const kill =
-    predictorMode() || !paperLearnMax()
-      ? killRaw
-      : { ...killRaw, killed: false, warning: killRaw.killed || killRaw.warning };
+  // Symbol-level kill is too blunt once we have pocket-level policy.
+  // Predictor mode: warning only — entryPolicy decides allow/deny.
+  // Learn-max: warning only. Strict kill only when both modes off.
+  const softKill = predictorMode() || paperLearnMax();
+  const kill = softKill
+    ? { ...killRaw, killed: false, warning: killRaw.killed || killRaw.warning }
+    : killRaw;
 
   const liveRegs = learning.regimes?.[symbol];
   const seedRegs = learning.seedRegimes?.[symbol];
