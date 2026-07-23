@@ -82,7 +82,9 @@ test("buildLevelHints suggests stop and target from paths", () => {
   assert.ok(hints.BOOM1000);
   assert.ok(hints.BOOM1000!.stopPct > 0);
   assert.ok(hints.BOOM1000!.targetPct > 0);
-  assert.ok(hints.BOOM1000!.stopPct >= 0.15);
+  assert.ok(
+    Math.abs(hints.BOOM1000!.stopPct * 3 - hints.BOOM1000!.targetPct) < 0.0002,
+  );
 
   const applied = applyLevelHint(
     100,
@@ -90,7 +92,10 @@ test("buildLevelHints suggests stop and target from paths", () => {
     { spikeTarget: 101, stretch: 102, invalidation: 99 },
     hints.BOOM1000,
   );
-  assert.ok(applied.methodSuffix.includes("wide-stop"));
+  assert.ok(applied.methodSuffix.includes("1:3"));
+  const targetDist = applied.spikeTarget - 100;
+  const stopDist = 100 - applied.invalidation;
+  assert.ok(Math.abs(targetDist / stopDist - 3) < 0.02);
 });
 
 test("buildOutcomeBreakdown flags stopout-heavy losses", () => {

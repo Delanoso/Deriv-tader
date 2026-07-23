@@ -3,6 +3,7 @@ import { buildSpikeForecast } from "./learning/hazard.js";
 import { blendConfidence } from "./learning/journal.js";
 import type { KillStatus } from "./learning/killRules.js";
 import { applyLevelHint, type LevelHint } from "./learning/levelTune.js";
+import { stopFromTarget } from "./learning/riskReward.js";
 import type { EntryPolicyDecision } from "./learning/entryPolicy.js";
 import { predictorMode } from "./learning/entryPolicy.js";
 import type { RegimePreference } from "./learning/regimePrefs.js";
@@ -198,6 +199,8 @@ function buildSpikePlan(ctx: {
     ctx.levelHint ?? undefined,
   );
 
+  // Hard 1:3 R:R — stop is always 33% of the target distance.
+  const rrStop = stopFromTarget(price, tuned.spikeTarget, isBoom);
   const gap = ctx.medianGap ?? ctx.meanGap;
   let ticksToEta: number | null = null;
   let expectedEpoch: number | null = null;
@@ -210,13 +213,13 @@ function buildSpikePlan(ctx: {
   return {
     spikeTarget: tuned.spikeTarget,
     stretch: tuned.stretch,
-    invalidation: tuned.invalidation,
+    invalidation: rrStop,
     expectedEpoch,
     ticksToEta,
     expectedMovePct: Number(
       ((Math.abs(tuned.spikeTarget - price) / price) * 100).toFixed(4),
     ),
-    method: `Median spike magnitude + ATR invalidation · median-gap ETA${tuned.methodSuffix}`,
+    method: `Median spike mag · 1:3 R:R stop · median-gap ETA${tuned.methodSuffix}`,
     active: ctx.opportunityKind === "spike_watch",
   };
 }

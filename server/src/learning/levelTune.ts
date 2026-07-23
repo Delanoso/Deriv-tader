@@ -1,4 +1,5 @@
 import type { JournalSignal, SymbolId } from "../types.js";
+import { stopFromTarget, stopPctFromTargetPct } from "./riskReward.js";
 
 export interface LevelHint {
   symbol: SymbolId;
@@ -26,9 +27,7 @@ function quantile(sorted: number[], q: number): number | null {
 }
 
 /**
- * Learn stop/target from live paths.
- * Critical fix vs v1: stops were tiny (~0.05%) and caused mass stopouts.
- * Now: stop beyond win MAE p90 with ATR floor; target from win MFE median.
+ * Learn target from live paths, then set stop to 1/3 of that target (1:3 R:R).
  */
 export function buildLevelHints(
   liveSignals: JournalSignal[],
@@ -36,8 +35,6 @@ export function buildLevelHints(
   minN = Number(process.env.LEVEL_TUNE_MIN_N || 8),
 ): Partial<Record<SymbolId, LevelHint>> {
   const out: Partial<Record<SymbolId, LevelHint>> = {};
-  const stopFloor = Number(process.env.LEVEL_STOP_FLOOR_PCT || 0.15);
-  const stopCeil = Number(process.env.LEVEL_STOP_CEIL_PCT || 1.25);
   const targetFloor = Number(process.env.LEVEL_TARGET_FLOOR_PCT || 0.12);
   const targetCeil = Number(process.env.LEVEL_TARGET_CEIL_PCT || 2.5);
 
@@ -70,12 +67,6 @@ export function buildLevelHints(
     const winMfeP50 = quantile(winMfes, 0.5);
     const lossMfeP75 = quantile(lossMfes, 0.75);
 
-    // Wider stop: past what most winning paths survive.
-    const rawStop = (winMaeP90 ?? winMaeP75 ?? avgMae) * 1.35 + 0.02;
-    const stopPct = Number(
-      Math.max(stopFloor, Math.min(stopCeil, rawStop)).toFixed(4),
-    );
-
     // Target: capture typical win MFE, stay above noise / loss MFE.
     const rawTarget = Math.max(
       winMfeP50 ?? avgMfe * 0.9,
@@ -84,6 +75,7 @@ export function buildLevelHints(
     const targetPct = Number(
       Math.max(targetFloor, Math.min(targetCeil, rawTarget)).toFixed(4),
     );
+    const stopPct = stopPctFromTargetPct(targetPct);
 
     out[symbol] = {
       symbol,
@@ -96,14 +88,14 @@ export function buildLevelHints(
       winMaeP90: winMaeP90 != null ? Number(winMaeP90.toFixed(4)) : null,
       winMfeP50: winMfeP50 != null ? Number(winMfeP50.toFixed(4)) : null,
       lossMfeP75: lossMfeP75 != null ? Number(lossMfeP75.toFixed(4)) : null,
-      note: `Wide-stop tune n=${rows.length}: stop≈${stopPct}% (win MAE p90) · target≈${targetPct}% (win MFE p50)`,
+      note: `1:3 R:R tune n=${rows.length}: target≈${targetPct}% · stop≈${stopPct}% (33% of target)`,
     };
   }
 
   return out;
 }
 
-/** Blend ATR/mag plan with learned % distances — prefer wider learned stops. */
+/** Blend structural target with learned %, then force stop = 1/3 of target. */
 export function applyLevelHint(
   entry: number,
   isBoom: boolean,
@@ -111,32 +103,31 @@ export function applyLevelHint(
   hint: LevelHint | undefined,
 ): { spikeTarget: number; stretch: number; invalidation: number; methodSuffix: string } {
   if (!hint || entry <= 0) {
-    return { ...base, methodSuffix: "" };
+    return {
+      spikeTarget: base.spikeTarget,
+      stretch: base.stretch,
+      invalidation: stopFromTarget(entry, base.spikeTarget, isBoom),
+      methodSuffix: " · 1:3 R:R",
+    };
   }
 
   const target = isBoom
     ? entry * (1 + hint.targetPct / 100)
     : entry * (1 - hint.targetPct / 100);
-  const stop = isBoom
-    ? entry * (1 - hint.stopPct / 100)
-    : entry * (1 + hint.stopPct / 100);
   const stretch = isBoom
     ? entry * (1 + (hint.targetPct * 1.55) / 100)
     : entry * (1 - (hint.targetPct * 1.55) / 100);
 
-  // Prefer learned stop (wider); blend target more evenly with structural spike mag.
-  const mixStop = (learned: number, structural: number) => {
-    // Pick the wider stop (further from entry).
-    if (isBoom) return Number(Math.min(learned, structural).toFixed(5));
-    return Number(Math.max(learned, structural).toFixed(5));
-  };
   const mixTarget = (learned: number, structural: number) =>
     Number((learned * 0.55 + structural * 0.45).toFixed(5));
 
+  const spikeTarget = mixTarget(target, base.spikeTarget);
+  const stretchPx = mixTarget(stretch, base.stretch);
+
   return {
-    spikeTarget: mixTarget(target, base.spikeTarget),
-    stretch: mixTarget(stretch, base.stretch),
-    invalidation: mixStop(stop, base.invalidation),
-    methodSuffix: ` · wide-stop tune n=${hint.basedOnN}`,
+    spikeTarget,
+    stretch: stretchPx,
+    invalidation: stopFromTarget(entry, spikeTarget, isBoom),
+    methodSuffix: ` · 1:3 R:R tune n=${hint.basedOnN}`,
   };
 }

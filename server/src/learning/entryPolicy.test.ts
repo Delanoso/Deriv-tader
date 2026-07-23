@@ -156,6 +156,8 @@ test("wide-stop level hints respect floor", () => {
   }
   const hints = buildLevelHints(rows, ["BOOM1000"], 8);
   assert.ok(hints.BOOM1000);
-  assert.ok(hints.BOOM1000!.stopPct >= 0.15);
-  assert.ok(hints.BOOM1000!.targetPct >= 0.12);
+  assert.ok(hints.BOOM1000!.targetPct > 0);
+  assert.ok(
+    Math.abs(hints.BOOM1000!.stopPct * 3 - hints.BOOM1000!.targetPct) < 0.0002,
+  );
 });

@@ -1,5 +1,6 @@
 import { atr, buildCandlesFromTicks, ema, momentum, rsi } from "../indicators.js";
 import type { Tick } from "../types.js";
+import { stopFromTarget } from "../learning/riskReward.js";
 import { blendVolConfidence } from "./journal.js";
 import type {
   VolAnalysis,
@@ -213,6 +214,12 @@ function scoreVolDirection(ctx: {
     rationale.push("No clear directional edge — stand aside.");
   }
 
+  // Force 1:3 R:R whenever we have a directional target.
+  if (bias === "up" || bias === "down") {
+    invalidation = stopFromTarget(price, target, bias === "up");
+    method = `${method} · 1:3 R:R`;
+  }
+
   // If learning says this bias is toxic, stand aside.
   const focus = ctx.focusBias;
   let vetoed = false;
@@ -278,7 +285,6 @@ export function resolveVolPending(
   for (const signal of pending) {
     const entryIdx = findIndex(ticks, signal.entryEpoch, signal.entryTickIndex);
     if (entryIdx < 0) continue;
-    const horizon = Math.max(signal.horizonTicks, VOL_MIN_HOLD_TICKS);
     // Scan the full available path — never force-close on horizon alone.
     const end = ticks.length - 1;
     const elapsed = end - entryIdx;
